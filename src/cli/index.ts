@@ -14,7 +14,11 @@ import {
   runDaemonService,
   type DaemonServiceDependencies,
 } from "./daemon-service.js";
-import { buildDoctorReport, type DoctorHealth } from "./doctor.js";
+import {
+  buildDoctorReport,
+  type DoctorHealth,
+  type DoctorHealthSession,
+} from "./doctor.js";
 import { GatewayServer } from "../server/gateway.js";
 import {
   MUTATION_OPERATIONS,
@@ -393,6 +397,58 @@ async function call(
   return value.result;
 }
 
+async function refreshDoctorHealth(
+  fetcher: typeof fetch,
+  port: number,
+  health: DoctorHealth,
+): Promise<DoctorHealth> {
+  if (!Array.isArray(health.sessions)) return health;
+  const sessions = await Promise.all(
+    (health.sessions as DoctorHealthSession[]).map(async (session) => {
+      if (typeof session.sessionId !== "string") return session;
+      const refreshed = { ...session };
+      delete refreshed.projectGuid;
+      delete refreshed.projectName;
+      delete refreshed.sequenceGuid;
+      delete refreshed.sequenceName;
+      try {
+        const value = await call(
+          fetcher,
+          port,
+          "get_active_project",
+          {},
+          session.sessionId,
+        );
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          return refreshed;
+        }
+        const project = value as Record<string, unknown>;
+        if (typeof project.guid === "string")
+          refreshed.projectGuid = project.guid;
+        if (typeof project.name === "string")
+          refreshed.projectName = project.name;
+        if (
+          project.activeSequence &&
+          typeof project.activeSequence === "object" &&
+          !Array.isArray(project.activeSequence)
+        ) {
+          const sequence = project.activeSequence as Record<string, unknown>;
+          if (typeof sequence.guid === "string")
+            refreshed.sequenceGuid = sequence.guid;
+          if (typeof sequence.name === "string")
+            refreshed.sequenceName = sequence.name;
+        }
+      } catch {
+        // A connected Plugin can legitimately have no open project yet. The
+        // cleared fields make that state explicit instead of reporting the
+        // last project observed by the broker.
+      }
+      return refreshed;
+    }),
+  );
+  return { ...health, sessions };
+}
+
 async function foregroundDaemon(port: number, writer: Writer): Promise<void> {
   const server = new GatewayServer(port, GATEWAY_PROTOCOL_TOKEN);
   try {
@@ -475,7 +531,11 @@ export async function runCli(
         brokerError =
           value.error || `Gateway health failed: ${response.status}`;
       } else {
-        health = value as DoctorHealth;
+        health = await refreshDoctorHealth(
+          fetcher,
+          port,
+          value as DoctorHealth,
+        );
       }
     } catch (error) {
       brokerError = error instanceof Error ? error.message : String(error);

@@ -138,7 +138,7 @@ premiere-gateway capabilities
 premiere-gateway journal --limit 20
 ```
 
-`doctor` reports the fixed protocol access mode, managed daemon, broker connection, Premiere version, plugin session, request journal, active project, and active sequence. A live session proves that the plugin is connected, but the wire protocol cannot determine whether it was loaded by UXP Developer Tool or by an installed CCX. Verify a cold start by closing UXP Developer Tool, restarting Premiere, and observing the automatic session.
+`doctor` reports the fixed protocol access mode, managed daemon, broker connection, Premiere version, plugin session, request journal, active project, and active sequence. It refreshes the current project and sequence from every connected session before reporting readiness; `ok` is true only when a supported Plugin session has a ready journal, an active project, and an active sequence. A live session proves that the plugin is connected, but the wire protocol cannot determine whether it was loaded by UXP Developer Tool or by an installed CCX. Verify a cold start by closing UXP Developer Tool, restarting Premiere, and observing the automatic session.
 
 `snapshot` reads the full project-item tree once per observation, projects the requested depth from the same in-memory tree, and observes project items and the timeline twice in one plugin request. It returns only when the project identity, sequence identity, project-item revision, timeline revision, and embedded identities match in both observations. If a human edits during the read, it retries up to three times and then stops without producing a diff.
 

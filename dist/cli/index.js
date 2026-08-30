@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { GATEWAY_PROTOCOL_TOKEN, resolvePort, } from "./config.js";
 import { runDaemonService, } from "./daemon-service.js";
-import { buildDoctorReport } from "./doctor.js";
+import { buildDoctorReport, } from "./doctor.js";
 import { GatewayServer } from "../server/gateway.js";
 import { MUTATION_OPERATIONS, } from "../shared/protocol.js";
 const HELP = `premiere-gateway — CLI + token-gated loopback broker + Premiere UXP Plugin
@@ -311,6 +311,46 @@ async function call(fetcher, port, operation, args, sessionId) {
     }
     return value.result;
 }
+async function refreshDoctorHealth(fetcher, port, health) {
+    if (!Array.isArray(health.sessions))
+        return health;
+    const sessions = await Promise.all(health.sessions.map(async (session) => {
+        if (typeof session.sessionId !== "string")
+            return session;
+        const refreshed = { ...session };
+        delete refreshed.projectGuid;
+        delete refreshed.projectName;
+        delete refreshed.sequenceGuid;
+        delete refreshed.sequenceName;
+        try {
+            const value = await call(fetcher, port, "get_active_project", {}, session.sessionId);
+            if (!value || typeof value !== "object" || Array.isArray(value)) {
+                return refreshed;
+            }
+            const project = value;
+            if (typeof project.guid === "string")
+                refreshed.projectGuid = project.guid;
+            if (typeof project.name === "string")
+                refreshed.projectName = project.name;
+            if (project.activeSequence &&
+                typeof project.activeSequence === "object" &&
+                !Array.isArray(project.activeSequence)) {
+                const sequence = project.activeSequence;
+                if (typeof sequence.guid === "string")
+                    refreshed.sequenceGuid = sequence.guid;
+                if (typeof sequence.name === "string")
+                    refreshed.sequenceName = sequence.name;
+            }
+        }
+        catch {
+            // A connected Plugin can legitimately have no open project yet. The
+            // cleared fields make that state explicit instead of reporting the
+            // last project observed by the broker.
+        }
+        return refreshed;
+    }));
+    return { ...health, sessions };
+}
 async function foregroundDaemon(port, writer) {
     const server = new GatewayServer(port, GATEWAY_PROTOCOL_TOKEN);
     try {
@@ -370,7 +410,7 @@ export async function runCli(argv, writer = (value) => process.stdout.write(valu
                     value.error || `Gateway health failed: ${response.status}`;
             }
             else {
-                health = value;
+                health = await refreshDoctorHealth(fetcher, port, value);
             }
         }
         catch (error) {

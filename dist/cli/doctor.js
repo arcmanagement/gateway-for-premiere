@@ -35,6 +35,11 @@ export function buildDoctorReport(input) {
     const brokerReachable = input.health?.ok === true;
     const liveSession = brokerReachable &&
         sessionChecks.some((session) => session.supportedPremiere && session.journalReady);
+    const editableSession = brokerReachable &&
+        sessionChecks.some((session) => session.supportedPremiere &&
+            session.journalReady &&
+            session.project.guid !== null &&
+            session.sequence.guid !== null);
     const daemonPort = typeof input.daemon.port === "number" ? input.daemon.port : null;
     const persistentBrokerConfigured = input.daemon.installed === true &&
         input.daemon.loaded === true &&
@@ -48,8 +53,10 @@ export function buildDoctorReport(input) {
         nextActions.push("premiere-gateway daemon restart");
     if (!liveSession)
         nextActions.push("Open a compatible Premiere project and connect the Premiere Gateway Plugin");
+    else if (!editableSession)
+        nextActions.push("Open a compatible Premiere project and active sequence");
     return {
-        ok: liveSession,
+        ok: editableSession,
         port: input.port,
         access: {
             mode: "fixed-public-protocol-token",
@@ -72,6 +79,7 @@ export function buildDoctorReport(input) {
         sessions: sessionChecks,
         readiness: {
             liveSession,
+            editableSession,
             persistentBrokerConfigured,
             persistentBroker,
             coldStartPlugin: liveSession

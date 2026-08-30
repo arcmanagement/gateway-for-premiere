@@ -31,7 +31,11 @@ test("doctor separates a live development session from persistent readiness", ()
   }) as {
     ok: boolean;
     access: { mode: string; token: string; loopbackOnly: boolean };
-    readiness: { liveSession: boolean; persistentBroker: boolean };
+    readiness: {
+      liveSession: boolean;
+      editableSession: boolean;
+      persistentBroker: boolean;
+    };
     nextActions: string[];
   };
 
@@ -43,6 +47,7 @@ test("doctor separates a live development session from persistent readiness", ()
   });
   assert.deepEqual(report.readiness, {
     liveSession: true,
+    editableSession: true,
     persistentBrokerConfigured: false,
     persistentBroker: false,
     coldStartPlugin:
@@ -72,13 +77,22 @@ test("doctor reports a persistently configured broker separately from CCX cold s
       ],
     },
   }) as {
-    readiness: { liveSession: boolean; persistentBroker: boolean };
+    ok: boolean;
+    readiness: {
+      liveSession: boolean;
+      editableSession: boolean;
+      persistentBroker: boolean;
+    };
     nextActions: string[];
   };
 
+  assert.equal(report.ok, false);
   assert.equal(report.readiness.liveSession, true);
+  assert.equal(report.readiness.editableSession, false);
   assert.equal(report.readiness.persistentBroker, true);
-  assert.deepEqual(report.nextActions, []);
+  assert.deepEqual(report.nextActions, [
+    "Open a compatible Premiere project and active sequence",
+  ]);
 });
 
 test("doctor requests a daemon restart when the configured broker is unreachable", () => {
@@ -95,6 +109,7 @@ test("doctor requests a daemon restart when the configured broker is unreachable
   }) as {
     readiness: {
       liveSession: boolean;
+      editableSession: boolean;
       persistentBrokerConfigured: boolean;
       persistentBroker: boolean;
     };
@@ -102,6 +117,7 @@ test("doctor requests a daemon restart when the configured broker is unreachable
   };
 
   assert.equal(report.readiness.liveSession, false);
+  assert.equal(report.readiness.editableSession, false);
   assert.equal(report.readiness.persistentBrokerConfigured, true);
   assert.equal(report.readiness.persistentBroker, false);
   assert.deepEqual(report.nextActions, [

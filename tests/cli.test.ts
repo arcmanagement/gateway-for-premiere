@@ -160,7 +160,7 @@ test("status returns diagnostic JSON when the broker is unavailable", async (con
   assert.match(result.error, /connection refused/);
 });
 
-test("doctor composes protocol access, daemon, broker, Premiere, and journal readiness", async (context) => {
+test("doctor refreshes current project metadata before reporting readiness", async (context) => {
   useFixedProtocolToken(context);
   const temporaryHome = await mkdtemp(
     path.join(os.tmpdir(), "premiere-gateway-doctor-"),
@@ -168,8 +168,29 @@ test("doctor composes protocol access, daemon, broker, Premiere, and journal rea
   context.after(async () =>
     rm(temporaryHome, { recursive: true, force: true }),
   );
-  const fakeFetch = (async () =>
-    new Response(
+  const requests: Array<{ url: string; body?: Record<string, unknown> }> = [];
+  const fakeFetch = (async (input, init) => {
+    const url = String(input);
+    requests.push({
+      url,
+      ...(init?.body
+        ? { body: JSON.parse(String(init.body)) as Record<string, unknown> }
+        : {}),
+    });
+    if (url.endsWith("/rpc")) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          result: {
+            guid: "project-current",
+            name: "current.prproj",
+            activeSequence: { guid: "sequence-current", name: "Current" },
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    return new Response(
       JSON.stringify({
         ok: true,
         sessions: [
@@ -179,15 +200,16 @@ test("doctor composes protocol access, daemon, broker, Premiere, and journal rea
             premiereVersion: "26.3.2",
             journalStatus: "ready",
             journalEntries: 74,
-            projectGuid: "project-1",
-            projectName: "edit.prproj",
-            sequenceGuid: "sequence-1",
-            sequenceName: "Main",
+            projectGuid: "project-stale",
+            projectName: "stale.prproj",
+            sequenceGuid: "sequence-stale",
+            sequenceName: "Stale",
           },
         ],
       }),
       { status: 200 },
-    )) as typeof fetch;
+    );
+  }) as typeof fetch;
   const fakeSpawn = (() => ({
     status: 113,
     stdout: "",
@@ -217,7 +239,11 @@ test("doctor composes protocol access, daemon, broker, Premiere, and journal rea
   const report = JSON.parse(text) as {
     ok: boolean;
     access: { mode: string; token: string; loopbackOnly: boolean };
-    readiness: { liveSession: boolean; persistentBroker: boolean };
+    readiness: {
+      liveSession: boolean;
+      editableSession: boolean;
+      persistentBroker: boolean;
+    };
     sessions: Array<{ project: { guid: string } }>;
   };
   assert.equal(report.ok, true);
@@ -228,12 +254,21 @@ test("doctor composes protocol access, daemon, broker, Premiere, and journal rea
   });
   assert.deepEqual(report.readiness, {
     liveSession: true,
+    editableSession: true,
     persistentBrokerConfigured: false,
     persistentBroker: false,
     coldStartPlugin:
       "live Plugin session connected; cold-start provenance requires restart observation",
   });
-  assert.equal(report.sessions[0]?.project.guid, "project-1");
+  assert.equal(report.sessions[0]?.project.guid, "project-current");
+  assert.deepEqual(requests[1], {
+    url: "http://127.0.0.1:1966/rpc",
+    body: {
+      operation: "get_active_project",
+      arguments: {},
+      sessionId: "premiere-1",
+    },
+  });
 });
 
 test("project targets an explicit Premiere session", async (context) => {
