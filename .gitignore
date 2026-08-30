@@ -1,0 +1,9 @@
+node_modules/
+plugin/dist/
+plugin/marketplace-dist/
+.DS_Store
+.tmp/
+*.log
+.env
+.env.*
+!.env.example

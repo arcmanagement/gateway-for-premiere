@@ -1,0 +1,67 @@
+{
+  "name": "@arcmanagement/premiere-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "premiereGateway": {
+    "protocolToken": "premiere-gateway"
+  },
+  "bin": {
+    "premiere-gateway": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "npm run build:server && npm run build:plugin",
+    "build:server": "node scripts/clean-server.mjs && node node_modules/typescript/bin/tsc -p tsconfig.json && chmod +x dist/cli/index.js",
+    "build:plugin": "node scripts/build-plugin.mjs",
+    "check": "npm run format:check && npm run lint && npm run typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint src plugin/src scripts tests",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p plugin/tsconfig.json --noEmit",
+    "test": "node --import tsx --test tests/**/*.test.ts",
+    "verify:ccx": "node scripts/verify-ccx.mjs",
+    "verify:dist": "npm run build:server && git diff --exit-code -- dist",
+    "verify:package": "node scripts/verify-package.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@adobe/cc-ext-uxp-types": "^7.3.1",
+    "@adobe/premierepro": "^26.3.0",
+    "@eslint/js": "^9.34.0",
+    "@types/node": "^22.18.0",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.25.9",
+    "eslint": "^9.34.0",
+    "globals": "^16.3.0",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.42.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "description": "A local CLI and Premiere UXP bridge for revision-checked editing of the active Adobe Premiere Pro project.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arcmanagement/premiere-gateway.git"
+  },
+  "homepage": "https://github.com/arcmanagement/premiere-gateway#readme",
+  "bugs": {
+    "url": "https://github.com/arcmanagement/premiere-gateway/issues"
+  },
+  "directories": {
+    "test": "tests"
+  },
+  "keywords": [
+    "adobe-premiere-pro",
+    "automation",
+    "cli",
+    "uxp",
+    "video-editing"
+  ],
+  "author": "ArcManagement Co., Ltd.",
+  "license": "MIT"
+}

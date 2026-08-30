@@ -1,0 +1,42 @@
+{
+  "manifestVersion": 5,
+  "id": "__PLUGIN_ID__",
+  "name": "Premiere Gateway",
+  "shortname": "PremiereGateway",
+  "version": "__PLUGIN_VERSION__",
+  "main": "index.html",
+  "host": {
+    "app": "premierepro",
+    "minVersion": "26.3.0"
+  },
+  "requiredPermissions": {
+    "network": {
+      "domains": ["ws://localhost:__GATEWAY_PORT__"]
+    }
+  },
+  "entrypoints": [
+    {
+      "id": "gatewayPanel",
+      "type": "panel",
+      "minimumSize": {
+        "width": 220,
+        "height": 100
+      },
+      "maximumSize": {
+        "width": 1000,
+        "height": 800
+      },
+      "preferredDockedSize": {
+        "width": 280,
+        "height": 120
+      },
+      "preferredFloatingSize": {
+        "width": 320,
+        "height": 140
+      },
+      "label": {
+        "default": "Premiere Gateway"
+      }
+    }
+  ]
+}

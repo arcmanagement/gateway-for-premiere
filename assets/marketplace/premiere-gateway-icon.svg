@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Premiere Gateway">
+  <rect width="1024" height="1024" rx="184" fill="#07144F"/>
+  <path d="M314 778V424c0-157 89-252 198-252s198 95 198 252v354" fill="none" stroke="#8B3DFF" stroke-width="112" stroke-linecap="round"/>
+  <path d="M156 524h712" fill="none" stroke="#00D8F5" stroke-width="44" stroke-linecap="round"/>
+  <rect x="451" y="463" width="122" height="122" rx="22" fill="#F4F7FF" transform="rotate(45 512 524)"/>
+  <circle cx="868" cy="524" r="66" fill="#FF654D"/>
+</svg>

@@ -1,0 +1,8 @@
+plugin/dist/
+plugin/marketplace-dist/
+tests/
+.github/
+.tmp/
+.env
+.env.*
+*.log
