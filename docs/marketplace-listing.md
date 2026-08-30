@@ -1,7 +1,14 @@
-# Adobe Developer Distribution draft
+# Adobe Developer Distribution submission
 
 This file is the local source of truth for Marketplace listing `ac804039`.
-Do not submit the listing for review without an explicit final confirmation.
+Do not recall the submission or publish an approved listing without explicit confirmation.
+
+## Submission status
+
+- Submitted for review: `2026-08-30` (`Asia/Tokyo`)
+- Listing details: `In review`
+- Version `0.1.0`: `In review`
+- Publishing preference: `Manually publish later`
 
 ## Listing details
 
@@ -56,15 +63,15 @@ Do not submit the listing for review without an explicit final confirmation.
 ## Note to Adobe reviewers
 
 ```text
-Premiere Gateway requires the free local CLI and broker on the same Mac. Install them with `brew install arcmanagement/premiere-gateway/premiere-gateway`, then run `premiere-gateway daemon install`. Homebrew installs the required Node.js runtime. No login, API key, Keychain entry, paid credential, or cloud service is required. Open any writable Adobe Premiere Pro project with an active sequence and run `premiere-gateway doctor` to confirm the invisible UXP plugin session before testing snapshot or revision-checked edit commands.
+Premiere Gateway requires the free local CLI and broker on the same Mac. Install them with Homebrew: brew install arcmanagement/premiere-gateway/premiere-gateway. Then run: premiere-gateway daemon install. Homebrew installs the required Node.js runtime. No login, API key, Keychain entry, paid credential, or cloud service is required. Open a writable Adobe Premiere Pro project with an active sequence and run premiere-gateway doctor to confirm the invisible UXP plugin session. The source, documentation, CLI release, and CCX are available at https://github.com/arcmanagement/premiere-gateway. Test snapshot reads first, then use a revision-checked edit command with --confirm.
 ```
 
-## Submission gates
+## Submission evidence
 
-- Install the Marketplace CCX locally through Creative Cloud Desktop.
-- Run `npm run verify:ccx` against the CCX created by UXP Developer Tool.
-- Restart Premiere Pro and verify automatic Plugin connection without UXP Developer Tools.
-- Run `premiere-gateway doctor`, `snapshot`, and project integrity checks.
-- Publish the source repository, immutable release tags, verified CLI package, and verified CCX release assets so Adobe reviewers can install both components.
-- Upload and save the listing/version draft only after action-time confirmation for the public support contact and files.
-- Preview the complete submission and request a separate final confirmation before submitting it to Adobe review.
+- [x] Installed the Marketplace CCX locally through Creative Cloud Desktop.
+- [x] Ran `npm run verify:ccx` against the CCX created by UXP Developer Tool.
+- [x] Restarted Premiere Pro and verified automatic Plugin connection without UXP Developer Tools.
+- [x] Ran `premiere-gateway doctor`, `snapshot`, reversible edit smoke tests, and project integrity checks.
+- [x] Published the source repository, immutable release tags, verified CLI package, and verified CCX release assets.
+- [x] Submitted the listing details and version `0.1.0` together for Adobe review after explicit confirmation.
+- [x] Selected manual publishing after approval.
