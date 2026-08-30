@@ -61,7 +61,7 @@ Homebrew installs the required Node.js runtime automatically.
 Alternatively, install Node.js 22 or later and the immutable package attached to the release tag:
 
 ```bash
-npm install --global https://github.com/arcmanagement/premiere-gateway/releases/download/v0.1.0/arcmanagement-premiere-gateway-0.1.0.tgz
+npm install --global https://github.com/arcmanagement/premiere-gateway/releases/download/v0.1.1/arcmanagement-premiere-gateway-0.1.1.tgz
 premiere-gateway daemon install
 premiere-gateway doctor
 ```
