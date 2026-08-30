@@ -8,7 +8,7 @@ Do not submit the listing for review without an explicit final confirmation.
 - Public plugin name: `Premiere Gateway`
 - Subtitle: `AI-ready Premiere automation`
 - Support email: `contact@arcm.co.jp`
-- Help URL: `https://arcm.co.jp/`
+- Help URL: `https://github.com/arcmanagement/premiere-gateway`
 - Description:
 
   ```text
@@ -43,6 +43,7 @@ Do not submit the listing for review without an explicit final confirmation.
 ## Version 0.1.0
 
 - CCX: `plugin/marketplace-dist/ac804039_premierepro.ccx`
+- Public CCX: `https://github.com/arcmanagement/premiere-gateway/releases/download/v0.1.1/ac804039_premierepro.ccx`
 - Requires another application on the same device: `Yes` (the local CLI and broker)
 - Requires third-party login: `No`
 - Supported language: `English`
@@ -55,7 +56,7 @@ Do not submit the listing for review without an explicit final confirmation.
 ## Note to Adobe reviewers
 
 ```text
-Premiere Gateway requires Node.js 22 or later and the free local CLI on the same Mac. Install the reviewed v0.1.0 package with `npm install --global https://github.com/arcmanagement/premiere-gateway/releases/download/v0.1.0/arcmanagement-premiere-gateway-0.1.0.tgz`, then run `premiere-gateway daemon install`. No login, API key, Keychain entry, or cloud service is required. Open any writable Premiere Pro project and run `premiere-gateway doctor` to confirm the invisible UXP plugin session before testing snapshot or revision-checked edit commands.
+Premiere Gateway requires the free local CLI and broker on the same Mac. Install them with `brew install arcmanagement/premiere-gateway/premiere-gateway`, then run `premiere-gateway daemon install`. Homebrew installs the required Node.js runtime. No login, API key, Keychain entry, paid credential, or cloud service is required. Open any writable Adobe Premiere Pro project with an active sequence and run `premiere-gateway doctor` to confirm the invisible UXP plugin session before testing snapshot or revision-checked edit commands.
 ```
 
 ## Submission gates
@@ -64,6 +65,6 @@ Premiere Gateway requires Node.js 22 or later and the free local CLI on the same
 - Run `npm run verify:ccx` against the CCX created by UXP Developer Tool.
 - Restart Premiere Pro and verify automatic Plugin connection without UXP Developer Tools.
 - Run `premiere-gateway doctor`, `snapshot`, and project integrity checks.
-- Publish the source repository, immutable `v0.1.0` tag, and verified npm package release asset so Adobe reviewers can install the required CLI.
+- Publish the source repository, immutable release tags, verified CLI package, and verified CCX release assets so Adobe reviewers can install both components.
 - Upload and save the listing/version draft only after action-time confirmation for the public support contact and files.
 - Preview the complete submission and request a separate final confirmation before submitting it to Adobe review.
