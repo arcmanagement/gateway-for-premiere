@@ -48,7 +48,17 @@ MCP is not part of the initial entry point. If typed tool discovery, event subsc
 
 ## Install the CLI
 
-Install Node.js 22 or later, then install the immutable package attached to the release tag:
+Install the CLI from the official Homebrew tap:
+
+```bash
+brew install arcmanagement/premiere-gateway/premiere-gateway
+premiere-gateway daemon install
+premiere-gateway doctor
+```
+
+Homebrew installs the required Node.js runtime automatically.
+
+Alternatively, install Node.js 22 or later and the immutable package attached to the release tag:
 
 ```bash
 npm install --global https://github.com/arcmanagement/premiere-gateway/releases/download/v0.1.0/arcmanagement-premiere-gateway-0.1.0.tgz
