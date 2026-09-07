@@ -80,10 +80,10 @@ for (const filename of ["index.html", "index.js"]) {
 }
 
 const bundle = unzip(["-p", ccxPath, "index.js"]).toString("utf8");
-assert.match(bundle, /["']premiere-gateway["']/);
+assert.match(bundle, /["']gateway-for-premiere["']/);
 assert.doesNotMatch(
   bundle,
-  /PREMIERE_GATEWAY_SECRET|x-premiere-gateway-secret|Keychain/,
+  /GATEWAY_FOR_PREMIERE_SECRET|x-gateway-for-premiere-secret|Keychain/,
 );
 
 const digest = createHash("sha256")

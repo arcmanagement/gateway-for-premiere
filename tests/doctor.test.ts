@@ -42,7 +42,7 @@ test("doctor separates a live development session from persistent readiness", ()
   assert.equal(report.ok, true);
   assert.deepEqual(report.access, {
     mode: "fixed-public-protocol-token",
-    token: "premiere-gateway",
+    token: "gateway-for-premiere",
     loopbackOnly: true,
   });
   assert.deepEqual(report.readiness, {
@@ -53,7 +53,7 @@ test("doctor separates a live development session from persistent readiness", ()
     coldStartPlugin:
       "live Plugin session connected; cold-start provenance requires restart observation",
   });
-  assert.deepEqual(report.nextActions, ["premiere-gateway daemon install"]);
+  assert.deepEqual(report.nextActions, ["gateway-for-premiere daemon install"]);
 });
 
 test("doctor reports a persistently configured broker separately from CCX cold start", () => {
@@ -121,8 +121,8 @@ test("doctor requests a daemon restart when the configured broker is unreachable
   assert.equal(report.readiness.persistentBrokerConfigured, true);
   assert.equal(report.readiness.persistentBroker, false);
   assert.deepEqual(report.nextActions, [
-    "premiere-gateway daemon restart",
-    "Open a compatible Premiere project and connect the Premiere Gateway Plugin",
+    "gateway-for-premiere daemon restart",
+    "Open a compatible Premiere project and connect the Gateway for Premiere Plugin",
   ]);
 });
 

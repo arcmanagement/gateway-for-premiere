@@ -85,7 +85,7 @@ test("health requires the fixed protocol token header", async (context) => {
   assert.equal(unauthorized.status, 401);
 
   const authorized = await fetch(`http://127.0.0.1:${port}/health`, {
-    headers: { "x-premiere-gateway-token": "test-token" },
+    headers: { "x-gateway-for-premiere-token": "test-token" },
   });
   assert.equal(authorized.status, 200);
   assert.deepEqual(await authorized.json(), { ok: true, sessions: [] });

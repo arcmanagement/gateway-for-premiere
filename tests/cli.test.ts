@@ -10,7 +10,7 @@ import { GATEWAY_PROTOCOL_TOKEN } from "../src/cli/config.js";
 
 function useFixedProtocolToken(context: test.TestContext): void {
   void context;
-  assert.equal(GATEWAY_PROTOCOL_TOKEN, "premiere-gateway");
+  assert.equal(GATEWAY_PROTOCOL_TOKEN, "gateway-for-premiere");
 }
 
 test("CLI help keeps internal routing fixed and has no per-call Plugin launcher", async () => {
@@ -21,8 +21,8 @@ test("CLI help keeps internal routing fixed and has no per-call Plugin launcher"
   assert.doesNotMatch(text, /--port/);
   assert.doesNotMatch(text, /plugin start/);
   assert.match(text, /daemon install/);
-  assert.match(text, /premiere-gateway doctor/);
-  assert.match(text, /premiere-gateway snapshot/);
+  assert.match(text, /gateway-for-premiere doctor/);
+  assert.match(text, /gateway-for-premiere snapshot/);
   assert.match(text, /transition add.*--match-name NAME/);
 });
 
@@ -115,8 +115,8 @@ test("status reports the connected Plugin session", async (context) => {
   const fakeFetch = (async (input, init) => {
     assert.equal(String(input), "http://127.0.0.1:2196/health");
     assert.equal(
-      (init?.headers as Record<string, string>)["x-premiere-gateway-token"],
-      "premiere-gateway",
+      (init?.headers as Record<string, string>)["x-gateway-for-premiere-token"],
+      "gateway-for-premiere",
     );
     return new Response(
       JSON.stringify({ ok: true, sessions: [{ sessionId: "premiere-1" }] }),
@@ -163,7 +163,7 @@ test("status returns diagnostic JSON when the broker is unavailable", async (con
 test("doctor refreshes current project metadata before reporting readiness", async (context) => {
   useFixedProtocolToken(context);
   const temporaryHome = await mkdtemp(
-    path.join(os.tmpdir(), "premiere-gateway-doctor-"),
+    path.join(os.tmpdir(), "gateway-for-premiere-doctor-"),
   );
   context.after(async () =>
     rm(temporaryHome, { recursive: true, force: true }),
@@ -249,7 +249,7 @@ test("doctor refreshes current project metadata before reporting readiness", asy
   assert.equal(report.ok, true);
   assert.deepEqual(report.access, {
     mode: "fixed-public-protocol-token",
-    token: "premiere-gateway",
+    token: "gateway-for-premiere",
     loopbackOnly: true,
   });
   assert.deepEqual(report.readiness, {
@@ -1055,13 +1055,13 @@ test("Plugin build uses the fixed plaintext protocol token", async (context) => 
   );
   assert.equal(captured?.command, "node");
   assert.equal(captured?.args.length, 1);
-  assert.equal(captured?.env?.PREMIERE_GATEWAY_PORT, "2196");
-  assert.equal(captured?.env?.PREMIERE_GATEWAY_PLUGIN_MODE, "panel");
+  assert.equal(captured?.env?.GATEWAY_FOR_PREMIERE_PORT, "2196");
+  assert.equal(captured?.env?.GATEWAY_FOR_PREMIERE_PLUGIN_MODE, "panel");
   assert.equal(
-    captured?.env?.PREMIERE_GATEWAY_PLUGIN_DISTRIBUTION,
+    captured?.env?.GATEWAY_FOR_PREMIERE_PLUGIN_DISTRIBUTION,
     "development",
   );
-  assert.doesNotMatch(text, /PREMIERE_GATEWAY_SECRET/);
+  assert.doesNotMatch(text, /GATEWAY_FOR_PREMIERE_SECRET/);
   assert.deepEqual(JSON.parse(text), {
     manifest: "/repo/plugin/dist/manifest.json",
   });
@@ -1076,7 +1076,7 @@ test("Plugin build selects Adobe's invisible application-launch mode explicitly"
     options?: { env?: NodeJS.ProcessEnv },
   ) => {
     void _args;
-    mode = options?.env?.PREMIERE_GATEWAY_PLUGIN_MODE;
+    mode = options?.env?.GATEWAY_FOR_PREMIERE_PLUGIN_MODE;
     return {
       status: 0,
       stdout: "/repo/plugin/dist/manifest.json\n",
@@ -1106,7 +1106,7 @@ test("Plugin build selects the fixed Marketplace distribution explicitly", async
     options?: { env?: NodeJS.ProcessEnv },
   ) => {
     void _args;
-    distribution = options?.env?.PREMIERE_GATEWAY_PLUGIN_DISTRIBUTION;
+    distribution = options?.env?.GATEWAY_FOR_PREMIERE_PLUGIN_DISTRIBUTION;
     return {
       status: 0,
       stdout: "/repo/plugin/marketplace-dist/manifest.json\n",
@@ -1131,7 +1131,7 @@ test("Plugin build selects the fixed Marketplace distribution explicitly", async
 
 test("managed daemon persists only port and paths", async (context) => {
   const homeDir = await mkdtemp(
-    path.join(os.tmpdir(), "premiere-gateway-service-"),
+    path.join(os.tmpdir(), "gateway-for-premiere-service-"),
   );
   context.after(() => rm(homeDir, { recursive: true, force: true }));
   let loaded = false;
@@ -1166,7 +1166,7 @@ test("managed daemon persists only port and paths", async (context) => {
         uid: 501,
         platform: "darwin",
         nodePath: "/opt/node/bin/node",
-        entrypoint: "/opt/premiere-gateway/dist/cli/index.js",
+        entrypoint: "/opt/gateway-for-premiere/dist/cli/index.js",
         pathValue: "/opt/node/bin:/usr/bin:/bin",
       },
     },
@@ -1185,9 +1185,9 @@ test("managed daemon persists only port and paths", async (context) => {
     ),
     "utf8",
   );
-  assert.match(plist, /PREMIERE_GATEWAY_PORT/);
+  assert.match(plist, /GATEWAY_FOR_PREMIERE_PORT/);
   assert.match(plist, /<string>2196<\/string>/);
-  assert.doesNotMatch(plist, /PREMIERE_GATEWAY_SECRET/);
+  assert.doesNotMatch(plist, /GATEWAY_FOR_PREMIERE_SECRET/);
   assert.ok(calls.some((call) => call.command === "plutil"));
   assert.ok(
     calls.some(

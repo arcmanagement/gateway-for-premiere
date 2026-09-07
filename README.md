@@ -1,6 +1,6 @@
-# Premiere Gateway
+# Gateway for Premiere
 
-Premiere Gateway is a local bridge that lets AI agents and human editors work on the same Adobe Premiere Pro project and sequence. The CLI sends requests to a fixed-token loopback broker, and an invisible Premiere UXP plugin reads and edits the active Premiere DOM.
+Gateway for Premiere is a local bridge that lets AI agents and human editors work on the same Adobe Premiere Pro project and sequence. The CLI sends requests to a fixed-token loopback broker, and an invisible Premiere UXP plugin reads and edits the active Premiere DOM.
 
 The Premiere project remains the source of truth. XML can still be used for rough cuts and interchange, but it does not replace the native project after a human has added effects, transitions, audio edits, captions, or Dynamic Link content.
 
@@ -9,7 +9,7 @@ The Premiere project remains the source of truth. XML can still be used for roug
 - macOS
 - Node.js 22 or later
 - Adobe Premiere Pro 26.3 or later
-- The Premiere Gateway CCX installed through Adobe Exchange or Creative Cloud Desktop
+- The Gateway for Premiere CCX installed through Adobe Exchange or Creative Cloud Desktop
 
 ## Supported operations
 
@@ -30,12 +30,12 @@ The Premiere project remains the source of truth. XML can still be used for roug
 - Serialize requests in both the broker and plugin.
 - Record write outcomes in a persistent UXP request journal and fail closed after uncertain outcomes.
 
-Premiere Gateway does not expose arbitrary JavaScript, ExtendScript, or QE DOM. Every write command requires `--confirm` and the expected project GUID, sequence GUID, and timeline revision.
+Gateway for Premiere does not expose arbitrary JavaScript, ExtendScript, or QE DOM. Every write command requires `--confirm` and the expected project GUID, sequence GUID, and timeline revision.
 
 ## Architecture
 
 ```text
-premiere-gateway CLI
+gateway-for-premiere CLI
         | fixed-token HTTP on 127.0.0.1
         v
 local broker
@@ -51,9 +51,9 @@ MCP is not part of the initial entry point. If typed tool discovery, event subsc
 Install the CLI from the official Homebrew tap:
 
 ```bash
-brew install arcmanagement/premiere-gateway/premiere-gateway
-premiere-gateway daemon install
-premiere-gateway doctor
+brew install arcmanagement/gateway-for-premiere/gateway-for-premiere
+gateway-for-premiere daemon install
+gateway-for-premiere doctor
 ```
 
 Homebrew installs the required Node.js runtime automatically.
@@ -61,9 +61,9 @@ Homebrew installs the required Node.js runtime automatically.
 Alternatively, install Node.js 22 or later and the immutable package attached to the release tag:
 
 ```bash
-npm install --global https://github.com/arcmanagement/premiere-gateway/releases/download/v0.1.1/arcmanagement-premiere-gateway-0.1.1.tgz
-premiere-gateway daemon install
-premiere-gateway doctor
+npm install --global https://github.com/arcmanagement/gateway-for-premiere/releases/download/v0.1.2/arcmanagement-gateway-for-premiere-0.1.2.tgz
+gateway-for-premiere daemon install
+gateway-for-premiere doctor
 ```
 
 The CCX is installed through Adobe Exchange. The CLI runs the loopback broker on the same Mac. No PAT, Keychain entry, pairing step, third-party account, or cloud service is required.
@@ -91,7 +91,7 @@ node dist/cli/index.js plugin build
 node dist/cli/index.js daemon install
 ```
 
-Add `plugin/dist/manifest.json` to Adobe UXP Developer Tool, then open `Window > UXP Plugins > Premiere Gateway` in Premiere Pro.
+Add `plugin/dist/manifest.json` to Adobe UXP Developer Tool, then open `Window > UXP Plugins > Gateway for Premiere` in Premiere Pro.
 
 The development panel reconnects to the broker after it has been opened once. The CLI does not bring Premiere or a panel to the foreground for each command. Use `status` to check the connection.
 
@@ -108,7 +108,7 @@ The Adobe Developer Distribution plugin ID is `ac804039`. Marketplace builds alw
 
 `verify:ccx` checks the Marketplace ID, host, invisible launch mode, package files, source manifest semantics, exact `index.html` and `index.js` bytes, fixed protocol token, absence of obsolete secrets, and the 50 MB limit.
 
-The fixed public protocol token is `premiere-gateway`. It is not used as a credential. HTTP requires it in a custom header to prevent accidental browser access to the loopback API. Plugin WebSocket connections accept only the measured Premiere UXP origin `file://` and reject HTTP(S) browser origins.
+The fixed public protocol token is `gateway-for-premiere`. It is not used as a credential. HTTP requires it in a custom header to prevent accidental browser access to the loopback API. Plugin WebSocket connections accept only the measured Premiere UXP origin `file://` and reject HTTP(S) browser origins.
 
 The invisible application-launch mode does not add a visible panel to Premiere's menu. Use the CLI `status` or `doctor` command to verify the session.
 
@@ -117,25 +117,25 @@ The invisible application-launch mode does not add a visible panel to Premiere's
 The broker is installed as a macOS LaunchAgent and starts at login:
 
 ```bash
-premiere-gateway daemon status
-premiere-gateway daemon stop
-premiere-gateway daemon start
-premiere-gateway daemon restart
-premiere-gateway daemon uninstall --confirm
+gateway-for-premiere daemon status
+gateway-for-premiere daemon stop
+gateway-for-premiere daemon start
+gateway-for-premiere daemon restart
+gateway-for-premiere daemon uninstall --confirm
 ```
 
 ## Inspect the active edit
 
 ```bash
-premiere-gateway doctor
-premiere-gateway status
-premiere-gateway snapshot --depth 4
-premiere-gateway project
-premiere-gateway project recovery
-premiere-gateway project items --depth 4
-premiere-gateway sequence
-premiere-gateway capabilities
-premiere-gateway journal --limit 20
+gateway-for-premiere doctor
+gateway-for-premiere status
+gateway-for-premiere snapshot --depth 4
+gateway-for-premiere project
+gateway-for-premiere project recovery
+gateway-for-premiere project items --depth 4
+gateway-for-premiere sequence
+gateway-for-premiere capabilities
+gateway-for-premiere journal --limit 20
 ```
 
 `doctor` reports the fixed protocol access mode, managed daemon, broker connection, Premiere version, plugin session, request journal, active project, and active sequence. It refreshes the current project and sequence from every connected session before reporting readiness; `ok` is true only when a supported Plugin session has a ready journal, an active project, and an active sequence. A live session proves that the plugin is connected, but the wire protocol cannot determine whether it was loaded by UXP Developer Tool or by an installed CCX. Verify a cold start by closing UXP Developer Tool, restarting Premiere, and observing the automatic session.
@@ -147,7 +147,7 @@ premiere-gateway journal --limit 20
 Use the GUIDs and revision returned by `sequence` or `snapshot`:
 
 ```bash
-premiere-gateway timeline trim \
+gateway-for-premiere timeline trim \
   --item-ref video:0:0 \
   --expect-revision REVISION \
   --expect-project PROJECT_GUID \
@@ -169,13 +169,13 @@ If Premiere or the plugin exits while a request is running, the entry becomes `u
 List every supported command with:
 
 ```bash
-premiere-gateway --help
+gateway-for-premiere --help
 ```
 
 ### Insert or overwrite a clip
 
 ```bash
-premiere-gateway timeline insert \
+gateway-for-premiere timeline insert \
   --project-item PROJECT_ITEM_ID \
   --time-seconds 5 \
   --video-track 0 \
@@ -190,7 +190,7 @@ premiere-gateway timeline insert \
 ### Rename a track
 
 ```bash
-premiere-gateway timeline track rename \
+gateway-for-premiere timeline track rename \
   --media-type audio \
   --track 0 \
   --name Dialogue \
@@ -203,7 +203,7 @@ premiere-gateway timeline track rename \
 ### Back up a project
 
 ```bash
-premiere-gateway project backup \
+gateway-for-premiere project backup \
   --output /absolute/path/project.gateway-backup.prproj \
   --expect-project PROJECT_GUID \
   --confirm
@@ -214,7 +214,7 @@ Existing backup files are never overwritten. `project recovery` reports the acti
 ### Export a sequence
 
 ```bash
-premiere-gateway sequence export \
+gateway-for-premiere sequence export \
   --output /absolute/path/output.mov \
   --preset /absolute/path/preset.epr \
   --expect-project PROJECT_GUID \

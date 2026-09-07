@@ -598,7 +598,7 @@ function assertRequestActive(payload: Record<string, unknown>): void {
     typeof connectionOpen !== "function" ||
     !(connectionOpen as () => boolean)()
   ) {
-    throw new Error("Premiere Gateway connection closed before execution");
+    throw new Error("Gateway for Premiere connection closed before execution");
   }
 }
 
@@ -643,7 +643,7 @@ async function execute(
   project.lockedAccess(() => {
     success = project.executeTransaction(
       callback,
-      `Premiere Gateway: ${label}`,
+      `Gateway for Premiere: ${label}`,
     );
   });
   if (!success) throw new Error(`Premiere rejected the ${label} transaction`);
@@ -1007,7 +1007,7 @@ async function removeProjectItem(payload: Record<string, unknown>): Promise<{
       compoundAction.addAction(
         context!.parent.createRemoveItemAction(context!.item),
       );
-    }, "Premiere Gateway: remove project item");
+    }, "Gateway for Premiere: remove project item");
   });
   if (!success)
     throw new Error("Premiere rejected the remove project item transaction");
@@ -2224,7 +2224,7 @@ async function connect(): Promise<void> {
       await ensureJournal();
     } catch (error) {
       journalStatus = "unavailable";
-      console.error("Premiere Gateway request journal unavailable", error);
+      console.error("Gateway for Premiere request journal unavailable", error);
     }
     send(target, {
       type: "hello",
@@ -2252,11 +2252,11 @@ async function connect(): Promise<void> {
     }
   };
   target.onerror = (event) => {
-    console.error("Premiere Gateway WebSocket error", event);
+    console.error("Gateway for Premiere WebSocket error", event);
     setStatus("Broker connection failed");
   };
   target.onclose = (event) => {
-    console.error("Premiere Gateway WebSocket closed", {
+    console.error("Gateway for Premiere WebSocket closed", {
       code: event.code,
       reason: event.reason,
       wasClean: event.wasClean,

@@ -13,23 +13,25 @@ const root = process.cwd();
 const packageJson = JSON.parse(
   await readFile(path.join(root, "package.json"), "utf8"),
 );
-const port = Number(process.env.PREMIERE_GATEWAY_PORT || 1966);
-const protocolToken = packageJson.premiereGateway?.protocolToken;
-const mode = process.env.PREMIERE_GATEWAY_PLUGIN_MODE || "panel";
+const port = Number(process.env.GATEWAY_FOR_PREMIERE_PORT || 1966);
+const protocolToken = packageJson.gatewayForPremiere?.protocolToken;
+const mode = process.env.GATEWAY_FOR_PREMIERE_PLUGIN_MODE || "panel";
 const distribution =
-  process.env.PREMIERE_GATEWAY_PLUGIN_DISTRIBUTION || "development";
+  process.env.GATEWAY_FOR_PREMIERE_PLUGIN_DISTRIBUTION || "development";
 
 if (!Number.isInteger(port) || port < 1 || port > 65535)
   throw new Error(`Invalid port: ${port}`);
-if (protocolToken !== "premiere-gateway") {
-  throw new Error("package.json must define protocolToken: premiere-gateway");
+if (protocolToken !== "gateway-for-premiere") {
+  throw new Error(
+    "package.json must define protocolToken: gateway-for-premiere",
+  );
 }
 if (!PLUGIN_MODES.includes(mode)) {
-  throw new Error(`Invalid PREMIERE_GATEWAY_PLUGIN_MODE: ${mode}`);
+  throw new Error(`Invalid GATEWAY_FOR_PREMIERE_PLUGIN_MODE: ${mode}`);
 }
 if (!PLUGIN_DISTRIBUTIONS.includes(distribution)) {
   throw new Error(
-    `Invalid PREMIERE_GATEWAY_PLUGIN_DISTRIBUTION: ${distribution}`,
+    `Invalid GATEWAY_FOR_PREMIERE_PLUGIN_DISTRIBUTION: ${distribution}`,
   );
 }
 

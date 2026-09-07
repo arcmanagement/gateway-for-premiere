@@ -84,7 +84,7 @@ export class GatewayServer {
         const server = createServer(async (request, response) => {
             let rpcRequestId;
             try {
-                if (!authorized(String(request.headers["x-premiere-gateway-token"] || ""), this.protocolToken)) {
+                if (!authorized(String(request.headers["x-gateway-for-premiere-token"] || ""), this.protocolToken)) {
                     writeJson(response, 401, {
                         ok: false,
                         error: "Invalid gateway protocol token",
@@ -209,7 +209,7 @@ export class GatewayServer {
         if (!extension)
             throw new Error("Export output must have an extension");
         const base = path.basename(outputFile, extension);
-        const stagingFile = path.join(outputDirectory, `.${base}.premiere-gateway-${randomUUID()}${extension}`);
+        const stagingFile = path.join(outputDirectory, `.${base}.gateway-for-premiere-${randomUUID()}${extension}`);
         const remainingMs = deadline - this.now();
         if (remainingMs <= 0)
             throw new Error("Premiere request expired before export dispatch");

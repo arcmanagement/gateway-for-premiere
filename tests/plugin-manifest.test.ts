@@ -77,7 +77,7 @@ test("development and Marketplace builds use only their fixed Adobe Plugin IDs",
     }),
   );
 
-  assert.equal(development.id, "com.arcmanagement.premiere-gateway");
+  assert.equal(development.id, "com.arcmanagement.gateway-for-premiere");
   assert.equal(marketplace.id, "ac804039");
   assert.throws(
     () =>

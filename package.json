@@ -1,13 +1,13 @@
 {
-  "name": "@arcmanagement/premiere-gateway",
-  "version": "0.1.1",
+  "name": "@arcmanagement/gateway-for-premiere",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
-  "premiereGateway": {
-    "protocolToken": "premiere-gateway"
+  "gatewayForPremiere": {
+    "protocolToken": "gateway-for-premiere"
   },
   "bin": {
-    "premiere-gateway": "dist/cli/index.js"
+    "gateway-for-premiere": "dist/cli/index.js"
   },
   "scripts": {
     "build": "npm run build:server && npm run build:plugin",
@@ -46,11 +46,11 @@
   "description": "A local CLI and Premiere UXP bridge for revision-checked editing of the active Adobe Premiere Pro project.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/arcmanagement/premiere-gateway.git"
+    "url": "git+https://github.com/arcmanagement/gateway-for-premiere.git"
   },
-  "homepage": "https://github.com/arcmanagement/premiere-gateway#readme",
+  "homepage": "https://github.com/arcmanagement/gateway-for-premiere#readme",
   "bugs": {
-    "url": "https://github.com/arcmanagement/premiere-gateway/issues"
+    "url": "https://github.com/arcmanagement/gateway-for-premiere/issues"
   },
   "directories": {
     "test": "tests"

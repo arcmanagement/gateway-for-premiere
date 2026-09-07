@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { access, mkdir, readFile, rename, rm, writeFile, } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-export const DAEMON_SERVICE_LABEL = "com.arcmanagement.premiere-gateway";
+export const DAEMON_SERVICE_LABEL = "com.arcmanagement.gateway-for-premiere";
 function xml(value) {
     return value
         .replaceAll("&", "&amp;")
@@ -36,7 +36,7 @@ ${strings.join("\n")}
   <dict>
     <key>PATH</key>
     <string>${xml(config.pathValue)}</string>
-    <key>PREMIERE_GATEWAY_PORT</key>
+    <key>GATEWAY_FOR_PREMIERE_PORT</key>
     <string>${config.port}</string>
   </dict>
   <key>RunAtLoad</key>
@@ -80,7 +80,7 @@ async function installedPort(plistPath) {
     if (!(await exists(plistPath)))
         return null;
     const source = await readFile(plistPath, "utf8");
-    const match = source.match(/<key>PREMIERE_GATEWAY_PORT<\/key>\s*<string>([^<]+)<\/string>/);
+    const match = source.match(/<key>GATEWAY_FOR_PREMIERE_PORT<\/key>\s*<string>([^<]+)<\/string>/);
     const port = Number(match ? unxml(match[1]) : "");
     return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
 }
@@ -155,7 +155,7 @@ export async function runDaemonService(port, argv, writer, dependencies = {}) {
     const launchAgentsDir = path.join(homeDir, "Library", "LaunchAgents");
     const logsDir = path.join(homeDir, "Library", "Logs");
     const plistPath = path.join(launchAgentsDir, `${DAEMON_SERVICE_LABEL}.plist`);
-    const logPath = path.join(logsDir, "premiere-gateway.log");
+    const logPath = path.join(logsDir, "gateway-for-premiere.log");
     const domain = `gui/${uid}`;
     const target = `${domain}/${DAEMON_SERVICE_LABEL}`;
     const delays = dependencies.waitDelays || [0, 50, 100, 250, 500, 1_000];
@@ -181,7 +181,7 @@ export async function runDaemonService(port, argv, writer, dependencies = {}) {
         const nodePath = dependencies.nodePath || process.execPath;
         const entrypoint = dependencies.entrypoint || process.argv[1];
         if (!entrypoint)
-            throw new Error("Could not determine premiere-gateway entrypoint");
+            throw new Error("Could not determine gateway-for-premiere entrypoint");
         const pathValue = dependencies.pathValue ||
             [
                 ...new Set([
@@ -223,7 +223,7 @@ export async function runDaemonService(port, argv, writer, dependencies = {}) {
         return;
     }
     if (!(await exists(plistPath))) {
-        throw new Error("Daemon is not installed; run `premiere-gateway daemon install`");
+        throw new Error("Daemon is not installed; run `gateway-for-premiere daemon install`");
     }
     if (action === "stop" || action === "restart") {
         run(spawn, "launchctl", ["bootout", target], true);
