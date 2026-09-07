@@ -10,55 +10,55 @@ import { runDaemonService, } from "./daemon-service.js";
 import { buildDoctorReport, } from "./doctor.js";
 import { GatewayServer } from "../server/gateway.js";
 import { MUTATION_OPERATIONS, } from "../shared/protocol.js";
-const HELP = `premiere-gateway — CLI + token-gated loopback broker + Premiere UXP Plugin
+const HELP = `gateway-for-premiere — CLI + token-gated loopback broker + Gateway for Premiere UXP Plugin
 
 Usage:
-  premiere-gateway --help
-  premiere-gateway daemon
-  premiere-gateway daemon install
-  premiere-gateway daemon start|stop|restart|status
-  premiere-gateway daemon uninstall --confirm
-  premiere-gateway doctor
-  premiere-gateway status
-  premiere-gateway snapshot [--depth N] [--session ID]
-  premiere-gateway plugin build [--mode panel|invisible] [--distribution development|marketplace]
-  premiere-gateway capabilities
-  premiere-gateway journal [--limit N] [--session ID]
-  premiere-gateway project [--session ID]
-  premiere-gateway project recovery [--session ID]
-  premiere-gateway project items [--depth N] [--session ID]
-  premiere-gateway project save --expect-project GUID [--session ID] --confirm
-  premiere-gateway project backup --output ABSOLUTE_PATH --expect-project GUID [--session ID] --confirm
-  premiere-gateway project import --input ABSOLUTE_PATH --expect-items-revision REVISION EXPECTATIONS --confirm
-  premiere-gateway project item remove --item-id ID --expect-items-revision REVISION EXPECTATIONS --confirm
-  premiere-gateway sequence [--session ID]
-  premiere-gateway sequence export --output ABSOLUTE_PATH --preset PRESET.epr EXPECTATIONS --confirm
-  premiere-gateway timeline trim --item-ref REF --expect-revision REVISION \
+  gateway-for-premiere --help
+  gateway-for-premiere daemon
+  gateway-for-premiere daemon install
+  gateway-for-premiere daemon start|stop|restart|status
+  gateway-for-premiere daemon uninstall --confirm
+  gateway-for-premiere doctor
+  gateway-for-premiere status
+  gateway-for-premiere snapshot [--depth N] [--session ID]
+  gateway-for-premiere plugin build [--mode panel|invisible] [--distribution development|marketplace]
+  gateway-for-premiere capabilities
+  gateway-for-premiere journal [--limit N] [--session ID]
+  gateway-for-premiere project [--session ID]
+  gateway-for-premiere project recovery [--session ID]
+  gateway-for-premiere project items [--depth N] [--session ID]
+  gateway-for-premiere project save --expect-project GUID [--session ID] --confirm
+  gateway-for-premiere project backup --output ABSOLUTE_PATH --expect-project GUID [--session ID] --confirm
+  gateway-for-premiere project import --input ABSOLUTE_PATH --expect-items-revision REVISION EXPECTATIONS --confirm
+  gateway-for-premiere project item remove --item-id ID --expect-items-revision REVISION EXPECTATIONS --confirm
+  gateway-for-premiere sequence [--session ID]
+  gateway-for-premiere sequence export --output ABSOLUTE_PATH --preset PRESET.epr EXPECTATIONS --confirm
+  gateway-for-premiere timeline trim --item-ref REF --expect-revision REVISION \
     --expect-project GUID --expect-sequence GUID [--start-seconds N] [--end-seconds N] \
     [--session ID] --confirm
-  premiere-gateway timeline insert --project-item ID --time-seconds N \
+  gateway-for-premiere timeline insert --project-item ID --time-seconds N \
     --video-track N --audio-track N [--mode insert|overwrite] EXPECTATIONS --confirm
-  premiere-gateway timeline move --item-ref REF --offset-seconds N EXPECTATIONS --confirm
-  premiere-gateway timeline clone --item-ref REF --offset-seconds N EXPECTATIONS --confirm
-  premiere-gateway timeline remove --item-ref REF [--ripple true|false] EXPECTATIONS --confirm
-  premiere-gateway timeline update --item-ref REF [--name NAME] [--disabled true|false] EXPECTATIONS --confirm
-  premiere-gateway timeline track rename --media-type video|audio --track N --name NAME EXPECTATIONS --confirm
-  premiere-gateway timeline mogrt insert --input ABSOLUTE_PATH --time-seconds N --video-track N --audio-track N EXPECTATIONS --confirm
-  premiere-gateway timeline marker add --name NAME --time-seconds N [--duration-seconds N] [--comments TEXT] [--type comment|chapter|weblink|flv-cue-point] EXPECTATIONS --confirm
-  premiere-gateway timeline marker update --marker-guid GUID [--name NAME] [--duration-seconds N] [--comments TEXT] [--type comment|chapter|weblink|flv-cue-point] [--color-index 0..6] EXPECTATIONS --confirm
-  premiere-gateway timeline marker move --marker-guid GUID --time-seconds N EXPECTATIONS --confirm
-  premiere-gateway timeline marker remove --marker-guid GUID EXPECTATIONS --confirm
-  premiere-gateway timeline components --item-ref REF EXPECTATIONS
-  premiere-gateway timeline transition add --item-ref REF --match-name NAME --position start|end EXPECTATIONS --confirm
-  premiere-gateway timeline transition remove --item-ref REF --position start|end EXPECTATIONS --confirm
-  premiere-gateway timeline effect add --item-ref VIDEO_REF --match-name NAME EXPECTATIONS --confirm
-  premiere-gateway timeline effect add --item-ref AUDIO_REF --display-name NAME EXPECTATIONS --confirm
-  premiere-gateway timeline effect remove --item-ref REF --component-index N EXPECTATIONS --confirm
-  premiere-gateway timeline effect set-param --item-ref REF --component-index N \
+  gateway-for-premiere timeline move --item-ref REF --offset-seconds N EXPECTATIONS --confirm
+  gateway-for-premiere timeline clone --item-ref REF --offset-seconds N EXPECTATIONS --confirm
+  gateway-for-premiere timeline remove --item-ref REF [--ripple true|false] EXPECTATIONS --confirm
+  gateway-for-premiere timeline update --item-ref REF [--name NAME] [--disabled true|false] EXPECTATIONS --confirm
+  gateway-for-premiere timeline track rename --media-type video|audio --track N --name NAME EXPECTATIONS --confirm
+  gateway-for-premiere timeline mogrt insert --input ABSOLUTE_PATH --time-seconds N --video-track N --audio-track N EXPECTATIONS --confirm
+  gateway-for-premiere timeline marker add --name NAME --time-seconds N [--duration-seconds N] [--comments TEXT] [--type comment|chapter|weblink|flv-cue-point] EXPECTATIONS --confirm
+  gateway-for-premiere timeline marker update --marker-guid GUID [--name NAME] [--duration-seconds N] [--comments TEXT] [--type comment|chapter|weblink|flv-cue-point] [--color-index 0..6] EXPECTATIONS --confirm
+  gateway-for-premiere timeline marker move --marker-guid GUID --time-seconds N EXPECTATIONS --confirm
+  gateway-for-premiere timeline marker remove --marker-guid GUID EXPECTATIONS --confirm
+  gateway-for-premiere timeline components --item-ref REF EXPECTATIONS
+  gateway-for-premiere timeline transition add --item-ref REF --match-name NAME --position start|end EXPECTATIONS --confirm
+  gateway-for-premiere timeline transition remove --item-ref REF --position start|end EXPECTATIONS --confirm
+  gateway-for-premiere timeline effect add --item-ref VIDEO_REF --match-name NAME EXPECTATIONS --confirm
+  gateway-for-premiere timeline effect add --item-ref AUDIO_REF --display-name NAME EXPECTATIONS --confirm
+  gateway-for-premiere timeline effect remove --item-ref REF --component-index N EXPECTATIONS --confirm
+  gateway-for-premiere timeline effect set-param --item-ref REF --component-index N \
     --param-index N --value JSON EXPECTATIONS --confirm
-  premiere-gateway timeline effect set-keyframe --item-ref REF --component-index N \
+  gateway-for-premiere timeline effect set-keyframe --item-ref REF --component-index N \
     --param-index N --time-seconds N --value JSON [--interpolation linear|hold|bezier|time] EXPECTATIONS --confirm
-  premiere-gateway timeline effect remove-keyframe --item-ref REF --component-index N \
+  gateway-for-premiere timeline effect remove-keyframe --item-ref REF --component-index N \
     --param-index N --time-seconds N EXPECTATIONS --confirm
 
 EXPECTATIONS:
@@ -264,7 +264,7 @@ async function gatewayFetch(fetcher, input, init, timeoutMs) {
         });
     }
     catch (error) {
-        throw new Error(`Could not reach Premiere Gateway: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Could not reach Gateway for Premiere: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
 async function call(fetcher, port, operation, args, sessionId) {
@@ -282,7 +282,7 @@ async function call(fetcher, port, operation, args, sessionId) {
             method: "POST",
             headers: {
                 "content-type": "application/json",
-                "x-premiere-gateway-token": GATEWAY_PROTOCOL_TOKEN,
+                "x-gateway-for-premiere-token": GATEWAY_PROTOCOL_TOKEN,
             },
             body: JSON.stringify({
                 operation,
@@ -357,7 +357,7 @@ async function foregroundDaemon(port, writer) {
         await server.start();
     }
     catch (error) {
-        throw new Error(`Could not start Premiere Gateway on port ${port}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Could not start Gateway for Premiere on port ${port}: ${error instanceof Error ? error.message : String(error)}`);
     }
     output(writer, { ok: true, port: server.port });
     await new Promise((resolve) => {
@@ -403,7 +403,7 @@ export async function runCli(argv, writer = (value) => process.stdout.write(valu
         let health;
         let brokerError;
         try {
-            const response = await gatewayFetch(fetcher, `http://127.0.0.1:${port}/health`, { headers: { "x-premiere-gateway-token": GATEWAY_PROTOCOL_TOKEN } }, 5_000);
+            const response = await gatewayFetch(fetcher, `http://127.0.0.1:${port}/health`, { headers: { "x-gateway-for-premiere-token": GATEWAY_PROTOCOL_TOKEN } }, 5_000);
             const value = await responseJson(response);
             if (!response.ok || !value.ok) {
                 brokerError =
@@ -427,7 +427,7 @@ export async function runCli(argv, writer = (value) => process.stdout.write(valu
         ensurePositionals(parsed.positionals, ["status"]);
         ensureOptions(parsed.options, []);
         try {
-            const response = await gatewayFetch(fetcher, `http://127.0.0.1:${port}/health`, { headers: { "x-premiere-gateway-token": GATEWAY_PROTOCOL_TOKEN } }, 5_000);
+            const response = await gatewayFetch(fetcher, `http://127.0.0.1:${port}/health`, { headers: { "x-gateway-for-premiere-token": GATEWAY_PROTOCOL_TOKEN } }, 5_000);
             const value = await responseJson(response);
             if (!response.ok)
                 throw new Error(value.error || `Gateway health failed: ${response.status}`);
@@ -457,9 +457,9 @@ export async function runCli(argv, writer = (value) => process.stdout.write(valu
             cwd: root,
             env: {
                 ...process.env,
-                PREMIERE_GATEWAY_PORT: String(port),
-                PREMIERE_GATEWAY_PLUGIN_MODE: mode,
-                PREMIERE_GATEWAY_PLUGIN_DISTRIBUTION: distribution,
+                GATEWAY_FOR_PREMIERE_PORT: String(port),
+                GATEWAY_FOR_PREMIERE_PLUGIN_MODE: mode,
+                GATEWAY_FOR_PREMIERE_PLUGIN_DISTRIBUTION: distribution,
             },
             encoding: "utf8",
         });

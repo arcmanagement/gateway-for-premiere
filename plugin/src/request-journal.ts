@@ -50,7 +50,7 @@ export interface RequestJournalPersistence {
 
 export class RequestDeadlineExpiredError extends Error {
   constructor() {
-    super("Premiere Gateway request expired before execution");
+    super("Gateway for Premiere request expired before execution");
     this.name = "RequestDeadlineExpiredError";
   }
 }
@@ -63,7 +63,7 @@ export function isRequestDeadlineExpiredError(
 
 export class RequestUnknownOutcomeError extends Error {
   constructor(
-    message = "Premiere Gateway operation outcome is unknown",
+    message = "Gateway for Premiere operation outcome is unknown",
     readonly afterProjectItemsRevision?: string,
     readonly afterRevision?: string,
   ) {
@@ -128,7 +128,9 @@ function parseDocument(value: string): RequestJournalDocument {
     !Number.isFinite(parsed.updatedAt) ||
     !Array.isArray(parsed.entries)
   ) {
-    throw new Error("Premiere Gateway request journal has an invalid schema");
+    throw new Error(
+      "Gateway for Premiere request journal has an invalid schema",
+    );
   }
   for (const entry of parsed.entries) {
     if (
@@ -139,7 +141,9 @@ function parseDocument(value: string): RequestJournalDocument {
       !Number.isFinite(entry.receivedAt) ||
       typeof entry.payloadDigest !== "string"
     ) {
-      throw new Error("Premiere Gateway request journal has an invalid entry");
+      throw new Error(
+        "Gateway for Premiere request journal has an invalid entry",
+      );
     }
   }
   return parsed as RequestJournalDocument;

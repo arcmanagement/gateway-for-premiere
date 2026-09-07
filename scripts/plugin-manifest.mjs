@@ -2,7 +2,7 @@ export const PLUGIN_MODES = ["panel", "invisible"];
 export const PLUGIN_DISTRIBUTIONS = ["development", "marketplace"];
 
 const PLUGIN_IDS = Object.freeze({
-  development: "com.arcmanagement.premiere-gateway",
+  development: "com.arcmanagement.gateway-for-premiere",
   marketplace: "ac804039",
 });
 

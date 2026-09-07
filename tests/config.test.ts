@@ -7,7 +7,7 @@ import {
 } from "../src/cli/config.js";
 
 test("the public protocol token is one fixed non-credential value", () => {
-  assert.equal(GATEWAY_PROTOCOL_TOKEN, "premiere-gateway");
+  assert.equal(GATEWAY_PROTOCOL_TOKEN, "gateway-for-premiere");
 });
 
 test("the broker has a stable loopback port", () => {

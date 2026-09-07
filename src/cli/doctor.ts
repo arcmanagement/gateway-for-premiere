@@ -96,12 +96,12 @@ export function buildDoctorReport(input: DoctorInput): Record<string, unknown> {
 
   const nextActions: string[] = [];
   if (input.daemon.installed !== true)
-    nextActions.push("premiere-gateway daemon install");
+    nextActions.push("gateway-for-premiere daemon install");
   else if (!persistentBroker)
-    nextActions.push("premiere-gateway daemon restart");
+    nextActions.push("gateway-for-premiere daemon restart");
   if (!liveSession)
     nextActions.push(
-      "Open a compatible Premiere project and connect the Premiere Gateway Plugin",
+      "Open a compatible Premiere project and connect the Gateway for Premiere Plugin",
     );
   else if (!editableSession)
     nextActions.push("Open a compatible Premiere project and active sequence");
@@ -111,7 +111,7 @@ export function buildDoctorReport(input: DoctorInput): Record<string, unknown> {
     port: input.port,
     access: {
       mode: "fixed-public-protocol-token",
-      token: "premiere-gateway",
+      token: "gateway-for-premiere",
       loopbackOnly: true,
     },
     daemon: {

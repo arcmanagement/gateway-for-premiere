@@ -1,4 +1,4 @@
-# Premiere Gateway repository rules
+# Gateway for Premiere repository rules
 
 This repository is the source of truth for the local gateway that lets AI agents safely read and edit the project and sequence currently open in Adobe Premiere Pro.
 
@@ -8,7 +8,7 @@ This repository is the source of truth for the local gateway that lets AI agents
 - Use the Premiere UXP plugin, the fixed-token loopback broker, and the CLI as the standard path.
 - Do not expose arbitrary JavaScript, ExtendScript, or the unsupported QE DOM.
 - Every mutation must be allowlisted and explicitly confirmed. It must match the active project, active sequence, and timeline revision, and it must use an undoable transaction when Premiere exposes an Action.
-- The fixed protocol token is `premiere-gateway`. It is not a credential. The broker must listen only on `127.0.0.1`, HTTP must require a custom header that normal browser requests do not send, and plugin WebSocket connections must accept only the measured Premiere UXP origin `file://` while rejecting HTTP(S) browser origins.
+- The fixed protocol token is `gateway-for-premiere`. It is not a credential. The broker must listen only on `127.0.0.1`, HTTP must require a custom header that normal browser requests do not send, and plugin WebSocket connections must accept only the measured Premiere UXP origin `file://` while rejecting HTTP(S) browser origins.
 - `plugin/dist/` and `plugin/marketplace-dist/` are generated artifacts and are not sources of truth.
 - The root `dist/` directory is a versioned release artifact for installing the CLI from GitHub. Keep it synchronized with `src/` through `npm run verify:dist`.
 - Add MCP only as an adapter over the existing broker contract. Do not duplicate Premiere operations.

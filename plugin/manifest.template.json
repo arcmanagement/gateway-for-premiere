@@ -1,8 +1,8 @@
 {
   "manifestVersion": 5,
   "id": "__PLUGIN_ID__",
-  "name": "Premiere Gateway",
-  "shortname": "PremiereGateway",
+  "name": "Gateway for Premiere",
+  "shortname": "GatewayForPremiere",
   "version": "__PLUGIN_VERSION__",
   "main": "index.html",
   "host": {
@@ -35,7 +35,7 @@
         "height": 140
       },
       "label": {
-        "default": "Premiere Gateway"
+        "default": "Gateway for Premiere"
       }
     }
   ]

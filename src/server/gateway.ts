@@ -143,7 +143,7 @@ export class GatewayServer {
       try {
         if (
           !authorized(
-            String(request.headers["x-premiere-gateway-token"] || ""),
+            String(request.headers["x-gateway-for-premiere-token"] || ""),
             this.protocolToken,
           )
         ) {
@@ -318,7 +318,7 @@ export class GatewayServer {
     const base = path.basename(outputFile, extension);
     const stagingFile = path.join(
       outputDirectory,
-      `.${base}.premiere-gateway-${randomUUID()}${extension}`,
+      `.${base}.gateway-for-premiere-${randomUUID()}${extension}`,
     );
     const remainingMs = deadline - this.now();
     if (remainingMs <= 0)
