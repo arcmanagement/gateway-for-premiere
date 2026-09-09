@@ -22,7 +22,6 @@ const outputPath = path.join(
   outputDir,
   `Gateway-for-Premiere-${packageJson.version}-Windows.exe`,
 );
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -39,6 +38,13 @@ function run(command, args, options = {}) {
     );
   }
   return String(result.stdout || "");
+}
+
+function runNpm(args, options = {}) {
+  const npmExecPath = process.env.npm_execpath;
+  if (npmExecPath)
+    return run(process.execPath, [npmExecPath, ...args], options);
+  return run("npm", args, options);
 }
 
 async function download(url, destination) {
@@ -98,9 +104,9 @@ await rm(workDir, { recursive: true, force: true });
 await mkdir(appDir, { recursive: true });
 await mkdir(outputDir, { recursive: true });
 
-run(npmCommand, ["run", "build:server"]);
+runNpm(["run", "build:server"]);
 const packed = JSON.parse(
-  run(npmCommand, ["pack", "--pack-destination", workDir, "--json"], {
+  runNpm(["pack", "--pack-destination", workDir, "--json"], {
     capture: true,
   }),
 );
@@ -111,7 +117,7 @@ run("tar", [
   appDir,
   "--strip-components=1",
 ]);
-run(npmCommand, [
+runNpm([
   "install",
   "--omit=dev",
   "--ignore-scripts",
