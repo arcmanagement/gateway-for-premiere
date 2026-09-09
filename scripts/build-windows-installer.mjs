@@ -25,7 +25,7 @@ const outputPath = path.join(
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
-    cwd: root,
+    cwd: options.cwd || root,
     encoding: "utf8",
     stdio: options.capture ? "pipe" : "inherit",
   });
@@ -117,15 +117,10 @@ run("tar", [
   appDir,
   "--strip-components=1",
 ]);
-runNpm([
-  "install",
-  "--omit=dev",
-  "--ignore-scripts",
-  "--no-audit",
-  "--no-fund",
-  "--prefix",
-  appDir,
-]);
+runNpm(
+  ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"],
+  { cwd: appDir },
+);
 
 const checksumsPath = path.join(cacheDir, `SHASUMS256-v${nodeVersion}.txt`);
 try {
