@@ -1,11 +1,21 @@
 import assert from "node:assert/strict";
 import type { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runCli } from "../src/cli/index.js";
-import { DAEMON_SERVICE_LABEL } from "../src/cli/daemon-service.js";
+import {
+  DAEMON_SERVICE_LABEL,
+  WINDOWS_DAEMON_TASK,
+} from "../src/cli/daemon-service.js";
 import { GATEWAY_PROTOCOL_TOKEN } from "../src/cli/config.js";
 
 function useFixedProtocolToken(context: test.TestContext): void {
@@ -1212,6 +1222,94 @@ test("managed daemon persists only port and paths", async (context) => {
   );
   const statusFromDifferentCaller = JSON.parse(text) as Record<string, unknown>;
   assert.equal(statusFromDifferentCaller.port, 2196);
+});
+
+test("Windows managed daemon uses a per-user scheduled task and PID file", async (context) => {
+  const localAppData = await mkdtemp(
+    path.join(os.tmpdir(), "gateway-for-premiere-windows-service-"),
+  );
+  context.after(() => rm(localAppData, { recursive: true, force: true }));
+  const serviceDir = path.join(localAppData, "Gateway for Premiere");
+  const pidPath = path.join(serviceDir, "gateway-for-premiere.pid");
+  await mkdir(serviceDir, { recursive: true });
+  await writeFile(pidPath, "1234\n", "utf8");
+
+  let taskCreated = false;
+  let running = false;
+  const calls: Array<{ command: string; args: readonly string[] }> = [];
+  const fakeSpawn = ((command: string, args: readonly string[] = []) => {
+    calls.push({ command, args });
+    if (command === "schtasks.exe" && args[0] === "/Create") taskCreated = true;
+    if (command === "schtasks.exe" && args[0] === "/Delete")
+      taskCreated = false;
+    if (command === "schtasks.exe" && args[0] === "/End") running = false;
+    if (command === "taskkill.exe") running = false;
+    if (command === "schtasks.exe" && args[0] === "/Query" && !taskCreated) {
+      return { status: 1, stdout: "", stderr: "not found" };
+    }
+    return { status: 0, stdout: "", stderr: "" };
+  }) as unknown as typeof spawnSync;
+  const fakeSpawnDetached = (() => {
+    running = true;
+    return { unref: () => undefined };
+  }) as never;
+
+  let text = "";
+  await runCli(
+    ["--port", "2196", "daemon", "install"],
+    (value) => {
+      text += value;
+    },
+    {
+      daemonService: {
+        spawn: fakeSpawn,
+        platform: "win32",
+        localAppData,
+        nodePath: "C:\\Gateway\\runtime\\node.exe",
+        entrypoint: "C:\\Gateway\\dist\\cli\\index.js",
+        processRunning: (pid) => pid === 1234 && running,
+        spawnDetached: fakeSpawnDetached,
+        waitDelays: [0],
+      },
+    },
+  );
+  const installed = JSON.parse(text) as Record<string, unknown>;
+  assert.equal(installed.installed, true);
+  assert.equal(installed.loaded, true);
+  assert.equal(installed.port, 2196);
+  assert.equal(installed.service, WINDOWS_DAEMON_TASK);
+  const launcher = await readFile(path.join(serviceDir, "daemon.cmd"), "utf8");
+  assert.match(launcher, /GATEWAY_FOR_PREMIERE_PORT=2196/);
+  assert.match(launcher, /GATEWAY_FOR_PREMIERE_PID_FILE/);
+  assert.doesNotMatch(launcher, /SECRET/);
+  assert.ok(
+    calls.some(
+      (call) =>
+        call.command === "schtasks.exe" &&
+        call.args[0] === "/Create" &&
+        call.args.includes("ONLOGON"),
+    ),
+  );
+
+  text = "";
+  await runCli(
+    ["daemon", "uninstall", "--confirm"],
+    (value) => {
+      text += value;
+    },
+    {
+      daemonService: {
+        spawn: fakeSpawn,
+        platform: "win32",
+        localAppData,
+        processRunning: (pid) => pid === 1234 && running,
+        waitDelays: [0],
+      },
+    },
+  );
+  const removed = JSON.parse(text) as Record<string, unknown>;
+  assert.equal(removed.installed, false);
+  assert.equal(removed.loaded, false);
 });
 
 test("managed daemon uninstall requires explicit confirmation", async () => {

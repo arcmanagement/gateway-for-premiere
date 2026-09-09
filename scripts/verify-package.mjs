@@ -30,6 +30,11 @@ const files = new Set(packs[0]?.files?.map((file) => file.path) || []);
 const required = [
   "dist/cli/doctor.js",
   "dist/cli/index.js",
+  "installer/gateway-for-premiere",
+  "installer/scripts/postinstall",
+  "installer/scripts/preinstall",
+  "installer/windows/GatewayForPremiere.iss",
+  "installer/windows/gateway-for-premiere.cmd",
   "plugin/manifest.template.json",
   "plugin/src/component-param-boundary.ts",
   "plugin/src/component-param-snapshot.ts",
@@ -46,8 +51,12 @@ const required = [
   "plugin/src/timeline-reliability.ts",
   "plugin/src/track-snapshot.ts",
   "scripts/build-plugin.mjs",
+  "scripts/build-macos-installer.mjs",
+  "scripts/build-windows-installer.mjs",
   "scripts/plugin-manifest.mjs",
   "scripts/verify-ccx.mjs",
+  "scripts/verify-macos-installer.mjs",
+  "scripts/verify-windows-installer.mjs",
 ];
 for (const file of required) {
   if (!files.has(file)) throw new Error(`npm package is missing: ${file}`);

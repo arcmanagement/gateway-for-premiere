@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+INSTALL_ROOT="/usr/local/lib/gateway-for-premiere"
+ENTRYPOINT="$INSTALL_ROOT/dist/cli/index.js"
+CONSOLE_USER=$(/usr/bin/stat -f '%Su' /dev/console)
+
+case "$CONSOLE_USER" in
+  ""|root|loginwindow)
+    echo "No signed-in desktop user was found; skipping LaunchAgent setup." >&2
+    echo "Run gateway-for-premiere daemon install after signing in." >&2
+    exit 0
+    ;;
+esac
+
+USER_ID=$(/usr/bin/id -u "$CONSOLE_USER")
+USER_HOME=$(/usr/bin/dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory | /usr/bin/awk '{print $2}')
+MACHINE_ARCH=$(/usr/bin/uname -m)
+
+case "$MACHINE_ARCH" in
+  arm64) NODE="$INSTALL_ROOT/runtime/arm64/bin/node" ;;
+  x86_64) NODE="$INSTALL_ROOT/runtime/x64/bin/node" ;;
+  *)
+    echo "Unsupported Mac architecture: $MACHINE_ARCH" >&2
+    exit 1
+    ;;
+esac
+
+/bin/launchctl asuser "$USER_ID" /usr/bin/sudo -H -u "$CONSOLE_USER" \
+  /usr/bin/env HOME="$USER_HOME" PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+  "$NODE" "$ENTRYPOINT" daemon install
+
+exit 0

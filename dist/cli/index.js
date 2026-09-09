@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
-import { copyFile, lstat, realpath, stat } from "node:fs/promises";
+import { copyFile, lstat, mkdir, realpath, rm, stat, writeFile, } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { GATEWAY_PROTOCOL_TOKEN, resolvePort, } from "./config.js";
@@ -10,7 +10,7 @@ import { runDaemonService, } from "./daemon-service.js";
 import { buildDoctorReport, } from "./doctor.js";
 import { GatewayServer } from "../server/gateway.js";
 import { MUTATION_OPERATIONS, } from "../shared/protocol.js";
-const HELP = `gateway-for-premiere — CLI + token-gated loopback broker + Gateway for Premiere UXP Plugin
+const HELP = `gateway-for-premiere - CLI + token-gated loopback broker + Gateway for Premiere UXP Plugin
 
 Usage:
   gateway-for-premiere --help
@@ -353,18 +353,29 @@ async function refreshDoctorHealth(fetcher, port, health) {
 }
 async function foregroundDaemon(port, writer) {
     const server = new GatewayServer(port, GATEWAY_PROTOCOL_TOKEN);
+    const pidFile = process.env.GATEWAY_FOR_PREMIERE_PID_FILE;
     try {
         await server.start();
     }
     catch (error) {
         throw new Error(`Could not start Gateway for Premiere on port ${port}: ${error instanceof Error ? error.message : String(error)}`);
     }
-    output(writer, { ok: true, port: server.port });
-    await new Promise((resolve) => {
-        process.once("SIGINT", resolve);
-        process.once("SIGTERM", resolve);
-    });
-    await server.close();
+    try {
+        if (pidFile) {
+            await mkdir(path.dirname(pidFile), { recursive: true });
+            await writeFile(pidFile, `${process.pid}\n`, "utf8");
+        }
+        output(writer, { ok: true, port: server.port });
+        await new Promise((resolve) => {
+            process.once("SIGINT", resolve);
+            process.once("SIGTERM", resolve);
+        });
+    }
+    finally {
+        await server.close();
+        if (pidFile)
+            await rm(pidFile, { force: true });
+    }
 }
 export async function runCli(argv, writer = (value) => process.stdout.write(value), dependencies = {}) {
     const { options: global, remaining } = parseGlobal(argv);

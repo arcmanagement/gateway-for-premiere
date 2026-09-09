@@ -6,8 +6,7 @@ The Premiere project remains the source of truth. XML can still be used for roug
 
 ## Requirements
 
-- macOS
-- Node.js 22 or later
+- macOS or Windows
 - Adobe Premiere Pro 26.3 or later
 - The Gateway for Premiere CCX installed through Adobe Exchange or Creative Cloud Desktop
 
@@ -46,7 +45,40 @@ Premiere UXP Plugin --> Premiere DOM --> active project / sequence
 
 MCP is not part of the initial entry point. If typed tool discovery, event subscriptions, or multiple clients become necessary, MCP should be added as an adapter over the same broker contract.
 
-## Install the CLI
+## Install the companion
+
+### Windows installer (recommended on Windows)
+
+Open the [latest GitHub release](https://github.com/arcmanagement/gateway-for-premiere/releases/latest), download `Gateway-for-Premiere-<version>-Windows.exe`, and run it. The per-user installer includes x64 and Arm64 Node.js runtimes, adds the `gateway-for-premiere` command to the user PATH, and starts the loopback broker automatically. Administrator access, Homebrew, npm, login, API key, and pairing are not required.
+
+Open a new PowerShell window after installation, then run:
+
+```powershell
+gateway-for-premiere doctor
+```
+
+The public installer should be Authenticode-signed. An unsigned build is suitable for isolated functional testing, but Windows SmartScreen may warn before installation.
+
+### macOS installer (recommended)
+
+Open the [latest GitHub release](https://github.com/arcmanagement/gateway-for-premiere/releases/latest), download `Gateway-for-Premiere-<version>-macOS-universal.pkg`, and double-click it. The installer:
+
+- supports both Apple Silicon and Intel Macs;
+- includes its own Node.js runtime;
+- installs the `gateway-for-premiere` command; and
+- installs and starts the per-user local broker automatically.
+
+No Homebrew, npm, account, API key, or pairing step is required. After installation, open a writable Premiere Pro project with an active sequence and run:
+
+```bash
+gateway-for-premiere doctor
+```
+
+The release installer must be signed with a Developer ID Installer certificate and notarized by Apple. Do not distribute an unsigned development build to reviewers.
+
+If Gateway for Premiere is already installed with Homebrew or npm, remove that installation before using the package installer. The package refuses to overwrite a command managed by another installer.
+
+### Homebrew
 
 Install the CLI from the official Homebrew tap:
 
@@ -56,7 +88,7 @@ gateway-for-premiere daemon install
 gateway-for-premiere doctor
 ```
 
-Homebrew installs the required Node.js runtime automatically.
+Homebrew installs the required Node.js runtime automatically. This route is intended for users who already use Homebrew; Adobe reviewers can use the package installer above.
 
 Alternatively, install Node.js 22 or later and the immutable package attached to the release tag:
 
@@ -66,9 +98,29 @@ gateway-for-premiere daemon install
 gateway-for-premiere doctor
 ```
 
-The CCX is installed through Adobe Exchange. The CLI runs the loopback broker on the same Mac. No PAT, Keychain entry, pairing step, third-party account, or cloud service is required.
+The CCX is installed through Adobe Exchange or Creative Cloud Desktop. The companion runs the loopback broker on the same computer. No PAT, Keychain entry, pairing step, third-party account, or cloud service is required.
 
 `plugin build` is intended for source checkouts that create a CCX. Normal Marketplace users install the CCX and do not need the plugin compiler.
+
+### If the plugin keeps reconnecting
+
+Run these checks from Terminal or PowerShell:
+
+```bash
+gateway-for-premiere daemon status
+gateway-for-premiere doctor
+```
+
+`daemon status` must report `installed: true`, `loaded: true`, and `state: running`. `doctor` must report a connected plugin session after Premiere Pro opens the installed CCX. If the daemon is not running, reinstall it and inspect the local log:
+
+```bash
+gateway-for-premiere daemon install
+tail -n 100 "$HOME/Library/Logs/gateway-for-premiere.log"
+```
+
+On Windows, the log is `%LOCALAPPDATA%\Gateway for Premiere\gateway-for-premiere.log`.
+
+The broker listens only on `127.0.0.1`; do not change it to a public interface. Restart Premiere Pro after installing or updating the CCX, then run `gateway-for-premiere doctor` again.
 
 ## Development
 
@@ -112,9 +164,40 @@ The fixed public protocol token is `gateway-for-premiere`. It is not used as a c
 
 The invisible application-launch mode does not add a visible panel to Premiere's menu. Use the CLI `status` or `doctor` command to verify the session.
 
+## Build the macOS installer
+
+The release package embeds the official Node.js arm64 and x64 runtimes and verifies them against Node.js's published SHA-256 checksums:
+
+```bash
+npm run build:installer
+npm run verify:installer
+```
+
+Unsigned packages are for local package inspection only. For a public GitHub release, set the external-distribution installer identity and a configured notarytool Keychain profile:
+
+```bash
+MACOS_INSTALLER_SIGNING_IDENTITY="Developer ID Installer: ArcManagement Inc (TEAM_ID)" \
+MACOS_NOTARY_PROFILE="gateway-for-premiere" \
+npm run build:installer
+npm run verify:installer
+```
+
+The build writes the `.pkg` and its SHA-256 file to `release/`. Never publish the package unless `verify:installer` reports `signed` and `xcrun stapler validate` succeeds.
+
+## Build the Windows installer
+
+The Windows release embeds the official Node.js x64 and Arm64 runtimes, verifies their published SHA-256 checksums, and uses Inno Setup 6:
+
+```powershell
+npm run build:installer:windows
+npm run verify:installer:windows
+```
+
+The build writes the `.exe` and its SHA-256 file to `release/`. For public distribution, sign the installer with an Authenticode code-signing certificate and require `npm run verify:installer:windows:release` to pass before publishing.
+
 ## Managed daemon
 
-The broker is installed as a macOS LaunchAgent and starts at login:
+The broker is installed as a macOS LaunchAgent or a per-user Windows Scheduled Task and starts at login:
 
 ```bash
 gateway-for-premiere daemon status

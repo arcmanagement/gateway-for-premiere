@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+INSTALL_ROOT="/usr/local/lib/gateway-for-premiere"
+
+case "$(/usr/bin/uname -m)" in
+  arm64) NODE="$INSTALL_ROOT/runtime/arm64/bin/node" ;;
+  x86_64) NODE="$INSTALL_ROOT/runtime/x64/bin/node" ;;
+  *)
+    echo "Unsupported Mac architecture: $(/usr/bin/uname -m)" >&2
+    exit 1
+    ;;
+esac
+
+exec "$NODE" "$INSTALL_ROOT/dist/cli/index.js" "$@"
