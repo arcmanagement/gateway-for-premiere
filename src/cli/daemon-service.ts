@@ -1,4 +1,5 @@
-import { spawnSync } from "node:child_process";
+import { spawn as spawnProcess, spawnSync } from "node:child_process";
+import { closeSync, openSync } from "node:fs";
 import {
   access,
   mkdir,
@@ -24,6 +25,9 @@ export interface DaemonServiceDependencies {
   entrypoint?: string;
   pathValue?: string;
   waitDelays?: number[];
+  localAppData?: string;
+  processRunning?: (pid: number) => boolean;
+  spawnDetached?: typeof spawnProcess;
 }
 
 interface LaunchAgentConfig {
@@ -183,15 +187,12 @@ async function bootstrap(
   throw new Error(`launchctl bootstrap failed: ${detail}`);
 }
 
-export async function runDaemonService(
+async function runDarwinDaemonService(
   port: number,
   argv: string[],
   writer: Writer,
   dependencies: DaemonServiceDependencies = {},
 ): Promise<void> {
-  if ((dependencies.platform || process.platform) !== "darwin") {
-    throw new Error("Managed daemon commands are supported on macOS only");
-  }
   const action = argv[0] || "status";
   const allowed = new Set([
     "install",
@@ -311,4 +312,263 @@ export async function runDaemonService(
     await waitFor(spawn, target, true, delays);
   }
   writer(`${JSON.stringify(await serviceStatus(), null, 2)}\n`);
+}
+
+export const WINDOWS_DAEMON_TASK = "ArcManagement Gateway for Premiere";
+
+interface WindowsDaemonConfig {
+  nodePath: string;
+  entrypoint: string;
+  logPath: string;
+  pidPath: string;
+  port: number;
+}
+
+function windowsCommandValue(value: string): string {
+  return value.replaceAll("%", "%%");
+}
+
+function windowsProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function windowsPid(
+  pidPath: string,
+  processRunning: (pid: number) => boolean,
+): Promise<number | null> {
+  try {
+    const pid = Number((await readFile(pidPath, "utf8")).trim());
+    return Number.isInteger(pid) && pid > 0 && processRunning(pid) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+async function waitForWindows(
+  pidPath: string,
+  expectedRunning: boolean,
+  processRunning: (pid: number) => boolean,
+  delays: number[],
+): Promise<void> {
+  let pid = await windowsPid(pidPath, processRunning);
+  for (const delay of delays) {
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    pid = await windowsPid(pidPath, processRunning);
+    if (expectedRunning ? pid !== null : pid === null) return;
+  }
+  throw new Error(
+    expectedRunning
+      ? "Daemon did not reach the running state"
+      : `Daemon did not stop (pid: ${pid ?? "unknown"})`,
+  );
+}
+
+async function runWindowsDaemonService(
+  port: number,
+  argv: string[],
+  writer: Writer,
+  dependencies: DaemonServiceDependencies,
+): Promise<void> {
+  const action = argv[0] || "status";
+  const allowed = new Set([
+    "install",
+    "start",
+    "stop",
+    "restart",
+    "status",
+    "uninstall",
+  ]);
+  if (!allowed.has(action))
+    throw new Error(`Unknown daemon command: ${action}`);
+  const trailing = argv.slice(1);
+  const confirm = action === "uninstall" && trailing.includes("--confirm");
+  const invalidOption =
+    action === "uninstall"
+      ? trailing.find((value) => value !== "--confirm")
+      : trailing[0];
+  if (invalidOption)
+    throw new Error(`Unknown daemon option: ${trailing.join(" ")}`);
+
+  const spawn = dependencies.spawn || spawnSync;
+  const localAppData =
+    dependencies.localAppData || process.env.LOCALAPPDATA || os.homedir();
+  const serviceDir = path.join(localAppData, "Gateway for Premiere");
+  const configPath = path.join(serviceDir, "daemon.json");
+  const launcherPath = path.join(serviceDir, "daemon.cmd");
+  const logPath = path.join(serviceDir, "gateway-for-premiere.log");
+  const pidPath = path.join(serviceDir, "gateway-for-premiere.pid");
+  const delays = dependencies.waitDelays || [0, 100, 250, 500, 1_000, 2_000];
+  const processRunning = dependencies.processRunning || windowsProcessRunning;
+  const spawnDetached = dependencies.spawnDetached || spawnProcess;
+
+  const readConfig = async (): Promise<WindowsDaemonConfig | null> => {
+    try {
+      return JSON.parse(
+        await readFile(configPath, "utf8"),
+      ) as WindowsDaemonConfig;
+    } catch {
+      return null;
+    }
+  };
+  const taskExists = (): boolean => {
+    const result = run(
+      spawn,
+      "schtasks.exe",
+      ["/Query", "/TN", WINDOWS_DAEMON_TASK],
+      true,
+    );
+    return !result.error && result.status === 0;
+  };
+  const serviceStatus = async (): Promise<Record<string, unknown>> => {
+    const config = await readConfig();
+    const pid = await windowsPid(config?.pidPath || pidPath, processRunning);
+    const installed = config !== null && taskExists();
+    return {
+      ok: true,
+      service: WINDOWS_DAEMON_TASK,
+      config: configPath,
+      log: config?.logPath || logPath,
+      installed,
+      port: config?.port ?? null,
+      loaded: pid !== null,
+      state: pid !== null ? "running" : installed ? "stopped" : null,
+      pid,
+    };
+  };
+  const startDetached = (config: WindowsDaemonConfig): void => {
+    const log = openSync(config.logPath, "a");
+    try {
+      const child = spawnDetached(
+        config.nodePath,
+        [config.entrypoint, "daemon"],
+        {
+          detached: true,
+          windowsHide: true,
+          stdio: ["ignore", log, log],
+          env: {
+            ...process.env,
+            GATEWAY_FOR_PREMIERE_PORT: String(config.port),
+            GATEWAY_FOR_PREMIERE_PID_FILE: config.pidPath,
+          },
+        },
+      );
+      child.unref();
+    } finally {
+      closeSync(log);
+    }
+  };
+
+  if (action === "status") {
+    writer(`${JSON.stringify(await serviceStatus(), null, 2)}\n`);
+    return;
+  }
+  if (action === "uninstall" && !confirm) {
+    throw new Error("daemon uninstall requires --confirm");
+  }
+
+  if (action === "install") {
+    const previousConfig = await readConfig();
+    const previousPid = await windowsPid(
+      previousConfig?.pidPath || pidPath,
+      processRunning,
+    );
+    if (previousPid !== null) {
+      run(
+        spawn,
+        "taskkill.exe",
+        ["/PID", String(previousPid), "/T", "/F"],
+        true,
+      );
+      await waitForWindows(
+        previousConfig?.pidPath || pidPath,
+        false,
+        processRunning,
+        delays,
+      );
+    }
+    const nodePath = dependencies.nodePath || process.execPath;
+    const entrypoint = dependencies.entrypoint || process.argv[1];
+    if (!entrypoint)
+      throw new Error("Could not determine gateway-for-premiere entrypoint");
+    await mkdir(serviceDir, { recursive: true });
+    const config: WindowsDaemonConfig = {
+      nodePath,
+      entrypoint,
+      logPath,
+      pidPath,
+      port,
+    };
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+    const launcher = [
+      "@echo off",
+      `set "GATEWAY_FOR_PREMIERE_PORT=${port}"`,
+      `set "GATEWAY_FOR_PREMIERE_PID_FILE=${windowsCommandValue(pidPath)}"`,
+      `"${windowsCommandValue(nodePath)}" "${windowsCommandValue(entrypoint)}" daemon >> "${windowsCommandValue(logPath)}" 2>&1`,
+      "",
+    ].join("\r\n");
+    await writeFile(launcherPath, launcher, "utf8");
+    run(spawn, "schtasks.exe", [
+      "/Create",
+      "/TN",
+      WINDOWS_DAEMON_TASK,
+      "/SC",
+      "ONLOGON",
+      "/TR",
+      `cmd.exe /d /s /c ""${launcherPath}""`,
+      "/F",
+    ]);
+    startDetached(config);
+    await waitForWindows(pidPath, true, processRunning, delays);
+    writer(`${JSON.stringify(await serviceStatus(), null, 2)}\n`);
+    return;
+  }
+
+  const config = await readConfig();
+  if (!config || !taskExists()) {
+    throw new Error(
+      "Daemon is not installed; run `gateway-for-premiere daemon install`",
+    );
+  }
+  if (action === "stop" || action === "restart" || action === "uninstall") {
+    const pid = await windowsPid(config.pidPath, processRunning);
+    if (pid !== null) {
+      run(spawn, "taskkill.exe", ["/PID", String(pid), "/T", "/F"], true);
+    }
+    run(spawn, "schtasks.exe", ["/End", "/TN", WINDOWS_DAEMON_TASK], true);
+    await waitForWindows(config.pidPath, false, processRunning, delays);
+  }
+  if (action === "uninstall") {
+    run(spawn, "schtasks.exe", ["/Delete", "/TN", WINDOWS_DAEMON_TASK, "/F"]);
+    await rm(serviceDir, { recursive: true, force: true });
+    writer(`${JSON.stringify(await serviceStatus(), null, 2)}\n`);
+    return;
+  }
+  if (action === "start" || action === "restart") {
+    startDetached(config);
+    await waitForWindows(config.pidPath, true, processRunning, delays);
+  }
+  writer(`${JSON.stringify(await serviceStatus(), null, 2)}\n`);
+}
+
+export async function runDaemonService(
+  port: number,
+  argv: string[],
+  writer: Writer,
+  dependencies: DaemonServiceDependencies = {},
+): Promise<void> {
+  const platform = dependencies.platform || process.platform;
+  if (platform === "darwin") {
+    return runDarwinDaemonService(port, argv, writer, dependencies);
+  }
+  if (platform === "win32") {
+    return runWindowsDaemonService(port, argv, writer, dependencies);
+  }
+  throw new Error(
+    "Managed daemon commands are supported on macOS and Windows only",
+  );
 }

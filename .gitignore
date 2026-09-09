@@ -3,6 +3,7 @@ plugin/dist/
 plugin/marketplace-dist/
 .DS_Store
 .tmp/
+release/
 *.log
 .env
 .env.*

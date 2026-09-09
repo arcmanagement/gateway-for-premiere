@@ -2,7 +2,15 @@
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
-import { copyFile, lstat, realpath, stat } from "node:fs/promises";
+import {
+  copyFile,
+  lstat,
+  mkdir,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -35,7 +43,7 @@ export interface CliDependencies {
   daemonService?: DaemonServiceDependencies;
 }
 
-const HELP = `gateway-for-premiere — CLI + token-gated loopback broker + Gateway for Premiere UXP Plugin
+const HELP = `gateway-for-premiere - CLI + token-gated loopback broker + Gateway for Premiere UXP Plugin
 
 Usage:
   gateway-for-premiere --help
@@ -451,6 +459,7 @@ async function refreshDoctorHealth(
 
 async function foregroundDaemon(port: number, writer: Writer): Promise<void> {
   const server = new GatewayServer(port, GATEWAY_PROTOCOL_TOKEN);
+  const pidFile = process.env.GATEWAY_FOR_PREMIERE_PID_FILE;
   try {
     await server.start();
   } catch (error) {
@@ -458,12 +467,20 @@ async function foregroundDaemon(port: number, writer: Writer): Promise<void> {
       `Could not start Gateway for Premiere on port ${port}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  output(writer, { ok: true, port: server.port });
-  await new Promise<void>((resolve) => {
-    process.once("SIGINT", resolve);
-    process.once("SIGTERM", resolve);
-  });
-  await server.close();
+  try {
+    if (pidFile) {
+      await mkdir(path.dirname(pidFile), { recursive: true });
+      await writeFile(pidFile, `${process.pid}\n`, "utf8");
+    }
+    output(writer, { ok: true, port: server.port });
+    await new Promise<void>((resolve) => {
+      process.once("SIGINT", resolve);
+      process.once("SIGTERM", resolve);
+    });
+  } finally {
+    await server.close();
+    if (pidFile) await rm(pidFile, { force: true });
+  }
 }
 
 export async function runCli(

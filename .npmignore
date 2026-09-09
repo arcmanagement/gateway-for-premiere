@@ -3,6 +3,7 @@ plugin/marketplace-dist/
 tests/
 .github/
 .tmp/
+release/
 .env
 .env.*
 *.log

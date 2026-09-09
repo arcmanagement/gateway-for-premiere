@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+PACKAGE_ID="com.arcmanagement.gateway-for-premiere"
+COMMAND_PATH="/usr/local/bin/gateway-for-premiere"
+HOMEBREW_COMMAND_PATH="/opt/homebrew/bin/gateway-for-premiere"
+
+if [ -e "$COMMAND_PATH" ] || [ -L "$COMMAND_PATH" ] || [ -e "$HOMEBREW_COMMAND_PATH" ]; then
+  if ! /usr/sbin/pkgutil --pkg-info "$PACKAGE_ID" >/dev/null 2>&1; then
+    echo "Gateway for Premiere is already managed outside this installer." >&2
+    echo "Remove the Homebrew or npm installation before installing this package." >&2
+    exit 1
+  fi
+fi
+
+exit 0

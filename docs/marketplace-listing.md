@@ -6,11 +6,14 @@ Do not recall the submission or publish an approved listing without explicit con
 ## Submission status
 
 - Submitted for review: `2026-08-30` (`Asia/Tokyo`)
-- Review result received: `2026-09-07` (`Asia/Tokyo`)
-- Listing details: `Rejected`; corrected draft saved on `2026-09-08`, not resubmitted
+- Latest review result received: `2026-09-09` (`Asia/Tokyo`)
+- Listing details: `Rejected`; next corrected version is not resubmitted
 - Version `0.1.0`: `Rejected`
 - Publishing preference: `Manually publish later`
-- Remaining review requirement: provide a complete video demonstration before resubmission
+- Remaining review requirements:
+  - provide signed GitHub Release installers for macOS and Windows that do not require Homebrew;
+  - demonstrate a successful local broker connection; and
+  - provide a complete video showing command results inside Premiere Pro.
 
 ## Listing details
 
@@ -31,7 +34,7 @@ Do not recall the submission or publish an approved listing without explicit con
 
   Premiere projects remain the source of truth. Gateway for Premiere does not expose arbitrary JavaScript, ExtendScript, or the unsupported QE DOM.
 
-  Requires the free Gateway for Premiere CLI and local broker on the same Mac. No third-party account or cloud service is required.
+  Requires the free Gateway for Premiere companion and local broker on the same macOS or Windows computer. No third-party account or cloud service is required.
   ```
 
   Adobe suggested `AI-ready automation for Premiere`, but the Developer Distribution subtitle field allows only 30 characters. The saved 26-character subtitle above preserves the requested `for Premiere` branding form.
@@ -53,10 +56,10 @@ Do not recall the submission or publish an approved listing without explicit con
 - Terms of service: leave blank unless Adobe validation makes it mandatory; ArcManagement does not currently publish a product terms URL.
 - Purchase method: `Free`
 
-## Version 0.1.2
+## Version 0.1.3
 
-- CCX: `plugin/marketplace-dist/ac804039_premierepro.ccx`
-- Public CCX: `https://github.com/arcmanagement/gateway-for-premiere/releases/download/v0.1.2/ac804039_premierepro.ccx`
+- Planned CCX: `plugin/marketplace-dist/ac804039_premierepro.ccx`
+- Current public CCX: `https://github.com/arcmanagement/gateway-for-premiere/releases/download/v0.1.2/ac804039_premierepro.ccx`
 - Requires another application on the same device: `Yes` (the local CLI and broker)
 - Requires third-party login: `No`
 - Supported language: `English`
@@ -69,7 +72,7 @@ Do not recall the submission or publish an approved listing without explicit con
 ## Note to Adobe reviewers
 
 ```text
-Gateway for Premiere requires the free local CLI and broker on the same Mac. Install them with Homebrew: brew install arcmanagement/gateway-for-premiere/gateway-for-premiere. Then run: gateway-for-premiere daemon install. Homebrew installs the required Node.js runtime. No login, API key, Keychain entry, paid credential, or cloud service is required. Open a writable Adobe Premiere Pro project with an active sequence and run gateway-for-premiere doctor to confirm the invisible UXP plugin session. The source, documentation, CLI release, and CCX are available at https://github.com/arcmanagement/gateway-for-premiere. Test snapshot reads first, then use a revision-checked edit command with --confirm.
+Gateway for Premiere requires its free local companion on the same computer. Download the installer for the review computer from the latest GitHub release at https://github.com/arcmanagement/gateway-for-premiere/releases/latest: Gateway-for-Premiere-<version>-Windows.exe on Windows, or Gateway-for-Premiere-<version>-macOS-universal.pkg on macOS. Each installer includes Node.js, installs the CLI, and starts the local broker automatically; Homebrew is not required. No login, API key, Keychain entry, paid credential, or cloud service is required. Open a writable Adobe Premiere Pro project with an active sequence and run gateway-for-premiere doctor to confirm the invisible UXP plugin session. If the plugin reports Reconnecting, run gateway-for-premiere daemon status and follow the troubleshooting section in the Help URL. Test snapshot reads first, then use a revision-checked edit command with --confirm.
 ```
 
 ## Submission evidence
@@ -79,7 +82,10 @@ Gateway for Premiere requires the free local CLI and broker on the same Mac. Ins
 - [x] Restarted Premiere Pro and verified automatic Plugin connection without UXP Developer Tools.
 - [x] Ran `gateway-for-premiere doctor`, `snapshot`, reversible edit smoke tests, and project integrity checks.
 - [x] Published the initial source repository, immutable release tags, verified CLI package, and verified CCX release assets.
-- [ ] Publish the renamed CLI package, Homebrew formula, and rebuilt CCX release assets before resubmission.
-- [ ] Record and attach the complete video demonstration requested by Adobe.
+- [ ] Publish a signed, notarized universal macOS installer and its checksum in the next GitHub release.
+- [ ] Publish an Authenticode-signed Windows installer and its checksum in the next GitHub release.
+- [ ] Verify the Windows installer lifecycle and loopback broker on a clean Windows user without installing Premiere Pro.
+- [ ] Verify the installer and CCX connection from a clean macOS user without Homebrew or UXP Developer Tool.
+- [ ] Record and attach a complete video that visibly shows the resulting changes inside Premiere Pro.
 - [x] Submitted the listing details and version `0.1.0` together for Adobe review after explicit confirmation.
 - [x] Selected manual publishing after approval.
