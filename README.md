@@ -80,20 +80,29 @@ If Gateway for Premiere is already installed with Homebrew or npm, remove that i
 
 ### Homebrew
 
-Install the CLI from the official Homebrew tap:
+Register this repository as the Homebrew tap, then install the CLI:
 
 ```bash
-brew install arcmanagement/gateway-for-premiere/gateway-for-premiere
+brew tap arcmanagement/gateway-for-premiere https://github.com/arcmanagement/gateway-for-premiere
+brew install gateway-for-premiere
 gateway-for-premiere daemon install
 gateway-for-premiere doctor
 ```
 
 Homebrew installs the required Node.js runtime automatically. This route is intended for users who already use Homebrew; Adobe reviewers can use the package installer above.
 
+If you installed from the former dedicated tap, point the existing tap at this repository before upgrading:
+
+```bash
+brew untap arcmanagement/gateway-for-premiere
+brew tap arcmanagement/gateway-for-premiere https://github.com/arcmanagement/gateway-for-premiere
+brew upgrade gateway-for-premiere
+```
+
 Alternatively, install Node.js 22 or later and the immutable package attached to the release tag:
 
 ```bash
-npm install --global https://github.com/arcmanagement/gateway-for-premiere/releases/download/v0.1.2/arcmanagement-gateway-for-premiere-0.1.2.tgz
+npm install --global https://github.com/arcmanagement/gateway-for-premiere/releases/download/v0.1.3/arcmanagement-gateway-for-premiere-0.1.3.tgz
 gateway-for-premiere daemon install
 gateway-for-premiere doctor
 ```
