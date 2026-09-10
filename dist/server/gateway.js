@@ -4,7 +4,7 @@ import { copyFile, lstat, link, realpath, stat, unlink, } from "node:fs/promises
 import { createServer, } from "node:http";
 import path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
-import { DEFAULT_PLUGIN_TIMEOUT_MS, EXPORT_PLUGIN_TIMEOUT_MS, MUTATION_OPERATIONS, READ_OPERATIONS, } from "../shared/protocol.js";
+import { AUTO_APPROVED_MUTATION_OPERATIONS, DEFAULT_PLUGIN_TIMEOUT_MS, EXPORT_PLUGIN_TIMEOUT_MS, MUTATION_OPERATIONS, READ_OPERATIONS, } from "../shared/protocol.js";
 function writeJson(response, status, value) {
     const body = JSON.stringify(value);
     response.writeHead(status, {
@@ -70,13 +70,15 @@ export class GatewayServer {
     port;
     protocolToken;
     now;
+    approvalMode;
     server;
     connections = new Map();
     pending = new Map();
-    constructor(port, protocolToken, now = Date.now) {
+    constructor(port, protocolToken, now = Date.now, approvalMode = "ask") {
         this.port = port;
         this.protocolToken = protocolToken;
         this.now = now;
+        this.approvalMode = approvalMode;
         if (!protocolToken)
             throw new Error("Gateway protocol token is required");
     }
@@ -92,7 +94,11 @@ export class GatewayServer {
                     return;
                 }
                 if (request.method === "GET" && request.url === "/health") {
-                    writeJson(response, 200, { ok: true, sessions: this.listSessions() });
+                    writeJson(response, 200, {
+                        ok: true,
+                        approvalMode: this.approvalMode,
+                        sessions: this.listSessions(),
+                    });
                     return;
                 }
                 if (request.method === "POST" && request.url === "/rpc") {
@@ -161,8 +167,25 @@ export class GatewayServer {
         this.server = undefined;
     }
     async call(operation, payload, requestedSessionId, requestedRequestId) {
-        if (MUTATION_OPERATIONS.has(operation) && payload.confirm !== true) {
-            throw new Error(`${operation} requires confirm: true`);
+        let effectivePayload = payload;
+        if (MUTATION_OPERATIONS.has(operation)) {
+            const approved = payload.confirm === true ||
+                this.approvalMode === "bypass" ||
+                (this.approvalMode === "auto" &&
+                    AUTO_APPROVED_MUTATION_OPERATIONS.has(operation));
+            if (!approved) {
+                throw new Error(`${operation} requires confirm: true in ${this.approvalMode} approval mode`);
+            }
+            for (const field of [
+                "expectedProjectGuid",
+                "expectedSequenceGuid",
+                "expectedRevision",
+            ]) {
+                if (typeof payload[field] !== "string" || !payload[field]) {
+                    throw new Error(`${operation} requires ${field}`);
+                }
+            }
+            effectivePayload = { ...payload, confirm: true };
         }
         const connection = this.selectConnection(requestedSessionId);
         const operationRequestId = requestId(requestedRequestId);
@@ -175,8 +198,8 @@ export class GatewayServer {
             if (remainingMs <= 0)
                 throw new Error(`Premiere request expired in session queue: ${operation}`);
             return operation === "export_sequence"
-                ? this.exportSequenceSafely(connection, payload, deadline, operationRequestId)
-                : this.dispatch(connection, operation, payload, MUTATION_OPERATIONS.has(operation) ? undefined : remainingMs, deadline, operationRequestId);
+                ? this.exportSequenceSafely(connection, effectivePayload, deadline, operationRequestId)
+                : this.dispatch(connection, operation, effectivePayload, MUTATION_OPERATIONS.has(operation) ? undefined : remainingMs, deadline, operationRequestId);
         });
         connection.tail = task.then(() => undefined, () => undefined);
         return task;

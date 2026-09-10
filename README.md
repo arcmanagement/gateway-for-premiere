@@ -29,7 +29,7 @@ The Premiere project remains the source of truth. XML can still be used for roug
 - Serialize requests in both the broker and plugin.
 - Record write outcomes in a persistent UXP request journal and fail closed after uncertain outcomes.
 
-Gateway for Premiere does not expose arbitrary JavaScript, ExtendScript, or QE DOM. Every write command requires `--confirm` and the expected project GUID, sequence GUID, and timeline revision.
+Gateway for Premiere does not expose arbitrary JavaScript, ExtendScript, or QE DOM. Every write command, including project save, always requires the expected project GUID, sequence GUID, and timeline revision. Confirmation behavior is controlled by the broker's approval mode.
 
 ## Architecture
 
@@ -215,6 +215,21 @@ gateway-for-premiere daemon start
 gateway-for-premiere daemon restart
 gateway-for-premiere daemon uninstall --confirm
 ```
+
+The broker owns the approval mode, so an individual CLI call cannot grant itself broader access. The default is `ask`:
+
+```bash
+# Ask for every mutation (default)
+gateway-for-premiere daemon approval-mode ask
+
+# Automatically approve the low-risk, undoable allowlist
+gateway-for-premiere daemon approval-mode auto
+
+# Do not require --confirm for any allowlisted Gateway mutation
+gateway-for-premiere daemon approval-mode bypass
+```
+
+`ask` requires `--confirm` on every mutation. `auto` omits confirmation only for track renames and non-destructive marker additions or changes, all through Premiere Actions. `bypass` omits confirmation for every implemented mutation, including destructive operations and exports. All three modes still enforce the typed operation allowlist, loopback and UXP-origin gates, active project and sequence identity, expected revisions, serialized execution, and the request journal. Bypass mode never enables arbitrary JavaScript, ExtendScript, QE DOM, raw network requests, or raw filesystem primitives; file-capable operations remain separately typed and allowlisted.
 
 ## Inspect the active edit
 

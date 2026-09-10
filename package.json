@@ -11,7 +11,7 @@
   },
   "scripts": {
     "build": "npm run build:server && npm run build:plugin",
-    "build:server": "node scripts/clean-server.mjs && node node_modules/typescript/bin/tsc -p tsconfig.json && chmod +x dist/cli/index.js",
+    "build:server": "node scripts/clean-server.mjs && node node_modules/typescript/bin/tsc -p tsconfig.json && node scripts/make-cli-executable.mjs",
     "build:plugin": "node scripts/build-plugin.mjs",
     "build:installer": "node scripts/build-macos-installer.mjs",
     "build:installer:windows": "node scripts/build-windows-installer.mjs",

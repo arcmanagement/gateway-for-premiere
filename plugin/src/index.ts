@@ -872,6 +872,484 @@ async function findProjectItem(
   return undefined;
 }
 
+async function projectItemDetails(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const project = await activeProject();
+  const item = await findProjectItem(
+    await project.getRootItem(),
+    String(payload.projectItemId || ""),
+  );
+  if (!item) throw new Error("Project item not found");
+  const parent = await item.getParentBin();
+  const details: Record<string, unknown> = {
+    id: String(await item.getId()),
+    name: String(item.name || ""),
+    type: Number(item.type),
+    colorLabelIndex: Number(await item.getColorLabelIndex()),
+    ...(parent ? { parentId: String(await parent.getId()) } : {}),
+  };
+  if (item.type !== ppro.ProjectItem.TYPE_CLIP) return details;
+  const clip = ppro.ClipProjectItem.cast(item);
+  const isSequence = Boolean(await clip.isSequence());
+  details.isSequence = isSequence;
+  details.contentType = Number(await clip.getContentType());
+  details.inputLutId = String(await clip.getInputLUTID());
+  details.embeddedLutId = String(await clip.getEmbeddedLUTID());
+  details.mergedClip = Boolean(await clip.isMergedClip());
+  details.multicamClip = Boolean(await clip.isMulticamClip());
+  details.originatingProjectPath = String(
+    await clip.getOriginatingProjectPath(),
+  );
+  if (!isSequence) {
+    details.canChangeMediaPath = Boolean(await clip.canChangeMediaPath());
+    details.offline = Boolean(await clip.isOffline());
+    details.canProxy = Boolean(await clip.canProxy());
+    details.hasProxy = Boolean(await clip.hasProxy());
+    details.proxyPath = String(await clip.getProxyPath());
+    details.mediaPath = String(await clip.getMediaFilePath());
+    const interpretation = await clip.getFootageInterpretation();
+    details.footageInterpretation = {
+      frameRate: Number(interpretation.getFrameRate()),
+      pixelAspectRatio: Number(interpretation.getPixelAspectRatio()),
+      fieldType: Number(interpretation.getFieldType()),
+      removePullDown: Boolean(interpretation.getRemovePullDown()),
+      alphaUsage: Number(interpretation.getAlphaUsage()),
+      ignoreAlpha: Boolean(interpretation.getIgnoreAlpha()),
+      invertAlpha: Boolean(interpretation.getInvertAlpha()),
+      vrConform: Number(interpretation.getVrConform()),
+      vrLayout: Number(interpretation.getVrLayout()),
+      vrHorizontalView: Number(interpretation.getVrHorzView()),
+      vrVerticalView: Number(interpretation.getVrVertView()),
+      inputLutId: String(interpretation.getInputLUTID()),
+    };
+  }
+  return details;
+}
+
+async function findProjectItemsByMediaPath(
+  payload: Record<string, unknown>,
+): Promise<ProjectItemSnapshot[]> {
+  const project = await activeProject();
+  const root = await project.getRootItem();
+  const seed = await findProjectItem(root, String(payload.projectItemId || ""));
+  if (!seed || seed.type !== ppro.ProjectItem.TYPE_CLIP)
+    throw new Error("A clip project item is required");
+  const match = String(payload.match || "");
+  if (!match) throw new Error("Media path match is required");
+  const matches = await ppro.ClipProjectItem.cast(
+    seed,
+  ).findItemsMatchingMediaPath(match, payload.ignoreSubclips !== false);
+  return Promise.all(
+    matches.map((item: any) => serializeProjectItem(item, 0, 0)),
+  );
+}
+
+async function checkedProjectItemMutation(
+  payload: Record<string, unknown>,
+): Promise<{
+  before: TimelineSnapshot;
+  project: any;
+  item: any;
+  parent: any;
+}> {
+  const { before, project } = await timelineMutationContext(payload);
+  const items = await fullProjectItems(project);
+  if (String(payload.expectedProjectItemsRevision || "") !== items.revision) {
+    throw new Error("Project items changed; read them again");
+  }
+  const context = await findProjectItemContext(
+    await project.getRootItem(),
+    String(payload.projectItemId || ""),
+  );
+  if (!context) throw new Error("Project item not found");
+  await assertMutationBoundary(before, payload);
+  return { before, project, ...context };
+}
+
+async function createBin(
+  payload: Record<string, unknown>,
+  smart: boolean,
+): Promise<Record<string, unknown>> {
+  if (payload.confirm !== true)
+    throw new Error(
+      `${smart ? "create_smart_bin" : "create_bin"} requires confirm: true`,
+    );
+  const { before, project } = await timelineMutationContext(payload);
+  const items = await fullProjectItems(project);
+  if (String(payload.expectedProjectItemsRevision || "") !== items.revision) {
+    throw new Error("Project items changed; read them again");
+  }
+  const root = await project.getRootItem();
+  const parentItem = payload.parentBinId
+    ? await findProjectItem(root, String(payload.parentBinId))
+    : root;
+  if (
+    !parentItem ||
+    (parentItem.type !== ppro.ProjectItem.TYPE_BIN &&
+      parentItem.type !== ppro.ProjectItem.TYPE_ROOT)
+  ) {
+    throw new Error("Parent bin not found");
+  }
+  const parent = ppro.FolderItem.cast(parentItem);
+  const name = String(payload.name || "").trim();
+  if (!name) throw new Error("Bin name is required");
+  await execute(
+    before,
+    payload,
+    project,
+    smart ? "create smart bin" : "create bin",
+    (action) => {
+      action.addAction(
+        smart
+          ? parent.createSmartBinAction(name, String(payload.searchQuery || ""))
+          : parent.createBinAction(name, payload.makeUnique !== false),
+      );
+    },
+  );
+  return { projectItems: await fullProjectItems(project) };
+}
+
+async function updateProjectItem(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (payload.confirm !== true)
+    throw new Error("update_project_item requires confirm: true");
+  const { before, project, item } = await checkedProjectItemMutation(payload);
+  if (payload.name === undefined && payload.colorLabelIndex === undefined)
+    throw new Error("Project item name or colorLabelIndex is required");
+  await execute(before, payload, project, "update project item", (action) => {
+    if (payload.name !== undefined) {
+      const name = String(payload.name).trim();
+      if (!name) throw new Error("Project item name cannot be empty");
+      action.addAction(item.createSetNameAction(name));
+    }
+    if (payload.colorLabelIndex !== undefined) {
+      action.addAction(
+        item.createSetColorLabelAction(
+          integer(payload.colorLabelIndex, "colorLabelIndex"),
+        ),
+      );
+    }
+  });
+  return { projectItems: await fullProjectItems(project) };
+}
+
+async function moveProjectItem(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (payload.confirm !== true)
+    throw new Error("move_project_item requires confirm: true");
+  const { before, project, item, parent } =
+    await checkedProjectItemMutation(payload);
+  const target = await findProjectItem(
+    await project.getRootItem(),
+    String(payload.targetBinId || ""),
+  );
+  if (
+    !target ||
+    (target.type !== ppro.ProjectItem.TYPE_BIN &&
+      target.type !== ppro.ProjectItem.TYPE_ROOT)
+  ) {
+    throw new Error("Target bin not found");
+  }
+  await execute(before, payload, project, "move project item", (action) => {
+    action.addAction(
+      parent.createMoveItemAction(item, ppro.FolderItem.cast(target)),
+    );
+  });
+  return { projectItems: await fullProjectItems(project) };
+}
+
+async function checkedClipMutation(payload: Record<string, unknown>): Promise<{
+  before: TimelineSnapshot;
+  project: any;
+  clip: any;
+}> {
+  const { before, project, item } = await checkedProjectItemMutation(payload);
+  if (item.type !== ppro.ProjectItem.TYPE_CLIP)
+    throw new Error("A clip project item is required");
+  const clip = ppro.ClipProjectItem.cast(item);
+  if (await clip.isSequence())
+    throw new Error("A media clip project item is required");
+  return { before, project, clip };
+}
+
+async function updateClipMedia(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (payload.confirm !== true)
+    throw new Error("update_clip_media requires confirm: true");
+  const { before, project, clip } = await checkedClipMutation(payload);
+  const action = String(payload.action || "");
+  if (action === "offline" || action === "scale-to-frame") {
+    await execute(before, payload, project, action, (compoundAction) => {
+      compoundAction.addAction(
+        action === "offline"
+          ? clip.createSetOfflineAction()
+          : clip.createSetScaleToFrameSizeAction(),
+      );
+    });
+  } else {
+    await assertMutationBoundary(before, payload);
+    let success = false;
+    if (action === "refresh") success = await clip.refreshMedia();
+    else if (action === "attach-proxy" || action === "attach-hires") {
+      success = await clip.attachProxy(
+        String(payload.mediaPath || ""),
+        action === "attach-hires",
+        payload.makeAlternateLinkInTeamProjects === true,
+      );
+    } else if (action === "relink") {
+      success = await clip.changeMediaFilePath(
+        String(payload.mediaPath || ""),
+        payload.overrideCompatibilityCheck === true,
+      );
+    } else {
+      throw new Error(
+        "action must be offline, refresh, attach-proxy, attach-hires, relink, or scale-to-frame",
+      );
+    }
+    if (!success) throw new Error(`Premiere rejected clip media ${action}`);
+  }
+  return projectItemDetails({ projectItemId: payload.projectItemId });
+}
+
+async function createSubclip(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (payload.confirm !== true)
+    throw new Error("create_subclip requires confirm: true");
+  const { before, project, clip } = await checkedClipMutation(payload);
+  const name = String(payload.name || "").trim();
+  if (!name) throw new Error("Subclip name is required");
+  const start = finiteNumber(payload.startSeconds, "startSeconds");
+  const end = finiteNumber(payload.endSeconds, "endSeconds");
+  if (start < 0 || end <= start)
+    throw new Error("Subclip bounds must satisfy 0 <= start < end");
+  await execute(before, payload, project, "create subclip", (action) => {
+    action.addAction(
+      clip.createSubClipAction(
+        name,
+        ppro.TickTime.createWithSeconds(start),
+        ppro.TickTime.createWithSeconds(end),
+        payload.hardBoundaries !== false,
+        {
+          takeVideo: payload.takeVideo !== false,
+          takeAudio: payload.takeAudio !== false,
+        },
+      ),
+    );
+  });
+  return { projectItems: await fullProjectItems(project) };
+}
+
+async function setClipInterpretation(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (payload.confirm !== true)
+    throw new Error("set_clip_interpretation requires confirm: true");
+  const { before, project, clip } = await checkedClipMutation(payload);
+  const changes = payload.interpretation;
+  if (!changes || typeof changes !== "object" || Array.isArray(changes))
+    throw new Error("interpretation must be an object");
+  const values = changes as Record<string, unknown>;
+  const interpretation = await clip.getFootageInterpretation();
+  const setters: Record<string, (value: unknown) => boolean> = {
+    frameRate: (value) =>
+      interpretation.setFrameRate(finiteNumber(value, "frameRate")),
+    pixelAspectRatio: (value) =>
+      interpretation.setPixelAspectRatio(
+        finiteNumber(value, "pixelAspectRatio"),
+      ),
+    fieldType: (value) =>
+      interpretation.setFieldType(integer(value, "fieldType")),
+    removePullDown: (value) =>
+      interpretation.setRemovePullDown(booleanValue(value, "removePullDown")),
+    alphaUsage: (value) =>
+      interpretation.setAlphaUsage(integer(value, "alphaUsage")),
+    ignoreAlpha: (value) =>
+      interpretation.setIgnoreAlpha(booleanValue(value, "ignoreAlpha")),
+    invertAlpha: (value) =>
+      interpretation.setInvertAlpha(booleanValue(value, "invertAlpha")),
+    vrConform: (value) =>
+      interpretation.setVrConform(integer(value, "vrConform")),
+    vrLayout: (value) => interpretation.setVrLayout(integer(value, "vrLayout")),
+    vrHorizontalView: (value) =>
+      interpretation.setVrHorzView(finiteNumber(value, "vrHorizontalView")),
+    vrVerticalView: (value) =>
+      interpretation.setVrVertView(finiteNumber(value, "vrVerticalView")),
+    inputLutId: (value) => interpretation.setInputLUTID(String(value)),
+  };
+  const unknown = Object.keys(values).find((key) => !setters[key]);
+  if (unknown)
+    throw new Error(`Unsupported footage interpretation: ${unknown}`);
+  if (Object.keys(values).length === 0)
+    throw new Error("At least one footage interpretation value is required");
+  for (const [key, value] of Object.entries(values)) {
+    if (!setters[key]!(value))
+      throw new Error(`Premiere rejected footage interpretation ${key}`);
+  }
+  await execute(
+    before,
+    payload,
+    project,
+    "set clip interpretation",
+    (action) => {
+      action.addAction(
+        clip.createSetFootageInterpretationAction(interpretation),
+      );
+    },
+  );
+  return projectItemDetails({ projectItemId: payload.projectItemId });
+}
+
+async function setClipBounds(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (payload.confirm !== true)
+    throw new Error("set_clip_bounds requires confirm: true");
+  const { before, project, clip } = await checkedClipMutation(payload);
+  await execute(before, payload, project, "set clip bounds", (action) => {
+    if (payload.clear === true) {
+      action.addAction(clip.createClearInOutPointsAction());
+      return;
+    }
+    const start = finiteNumber(payload.inSeconds, "inSeconds");
+    const end = finiteNumber(payload.outSeconds, "outSeconds");
+    if (start < 0 || end <= start)
+      throw new Error("Clip bounds must satisfy 0 <= in < out");
+    action.addAction(
+      clip.createSetInOutPointsAction(
+        ppro.TickTime.createWithSeconds(start),
+        ppro.TickTime.createWithSeconds(end),
+      ),
+    );
+  });
+  return projectItemDetails({ projectItemId: payload.projectItemId });
+}
+
+async function sourceMonitorSnapshot(): Promise<Record<string, unknown>> {
+  let item: any;
+  try {
+    item = await ppro.SourceMonitor.getProjectItem();
+  } catch {
+    item = undefined;
+  }
+  let positionSeconds: number | null = null;
+  try {
+    positionSeconds = seconds(await ppro.SourceMonitor.getPosition());
+  } catch {
+    // No open Source Monitor item has no meaningful position.
+  }
+  return {
+    positionSeconds,
+    ...(item
+      ? {
+          projectItem: {
+            id: String(await item.getId()),
+            name: String(item.name || ""),
+            type: Number(item.type),
+          },
+        }
+      : { projectItem: null }),
+  };
+}
+
+async function sourceMonitorMutation(
+  operation: "open-file" | "open-item" | "close" | "position" | "play",
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (payload.confirm !== true)
+    throw new Error(`source_monitor_${operation} requires confirm: true`);
+  const { before, project } = await timelineMutationContext(payload);
+  const projectItem =
+    operation === "open-item"
+      ? await findProjectItem(
+          await project.getRootItem(),
+          String(payload.projectItemId || ""),
+        )
+      : undefined;
+  if (operation === "open-item" && !projectItem) {
+    throw new Error("Project item not found");
+  }
+  await assertMutationBoundary(before, payload);
+  let success = false;
+  if (operation === "open-file") {
+    success = await ppro.SourceMonitor.openFilePath(
+      String(payload.filePath || ""),
+    );
+  } else if (operation === "open-item") {
+    success = await ppro.SourceMonitor.openProjectItem(projectItem);
+  } else if (operation === "close") {
+    success =
+      payload.all === true
+        ? await ppro.SourceMonitor.closeAllClips()
+        : await ppro.SourceMonitor.closeClip();
+  } else if (operation === "position") {
+    const value = finiteNumber(payload.timeSeconds, "timeSeconds");
+    if (value < 0) throw new Error("timeSeconds must be >= 0");
+    success = await ppro.SourceMonitor.setPosition(
+      ppro.TickTime.createWithSeconds(value),
+    );
+  } else {
+    success = await ppro.SourceMonitor.play(
+      finiteNumber(payload.speed ?? 1, "speed"),
+    );
+  }
+  if (!success)
+    throw new Error(`Premiere rejected Source Monitor ${operation}`);
+  return sourceMonitorSnapshot();
+}
+
+async function clipTranscript(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const project = await activeProject();
+  const item = await findProjectItem(
+    await project.getRootItem(),
+    String(payload.projectItemId || ""),
+  );
+  if (!item || item.type !== ppro.ProjectItem.TYPE_CLIP)
+    throw new Error("A clip project item is required");
+  const clip = ppro.ClipProjectItem.cast(item);
+  const available = Boolean(ppro.Transcript.hasTranscript(clip));
+  return {
+    available,
+    ...(available
+      ? { transcript: await ppro.Transcript.exportToJSON(clip) }
+      : {}),
+  };
+}
+
+async function importClipTranscript(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (payload.confirm !== true)
+    throw new Error("import_clip_transcript requires confirm: true");
+  const { before, project, clip } = await checkedClipMutation(payload);
+  const json = String(payload.transcript || "");
+  if (!json) throw new Error("Transcript JSON is required");
+  const segments = ppro.Transcript.importFromJSON(json);
+  await execute(
+    before,
+    payload,
+    project,
+    "import clip transcript",
+    (action) => {
+      action.addAction(
+        ppro.Transcript.createImportTextSegmentsAction(segments, clip),
+      );
+    },
+  );
+  if (!ppro.Transcript.hasTranscript(clip)) {
+    throw new RequestUnknownOutcomeError(
+      "Transcript import completed, but no transcript was found",
+    );
+  }
+  return clipTranscript({ projectItemId: payload.projectItemId });
+}
+
 async function assertRemovableProjectItem(item: any): Promise<void> {
   if (item.type === ppro.ProjectItem.TYPE_ROOT) {
     throw new Error("The project root cannot be removed");
@@ -1088,10 +1566,7 @@ function expectIdentity(
   if (String(payload.expectedProjectGuid || "") !== snapshot.project.guid) {
     throw new Error("Active project changed; take a new snapshot");
   }
-  if (
-    payload.expectedSequenceGuid !== undefined &&
-    String(payload.expectedSequenceGuid) !== snapshot.sequence.guid
-  ) {
+  if (String(payload.expectedSequenceGuid || "") !== snapshot.sequence.guid) {
     throw new Error("Active sequence changed; take a new snapshot");
   }
 }
@@ -1913,6 +2388,466 @@ async function removeComponentKeyframe(
   };
 }
 
+async function sequenceSummaries(project: any): Promise<
+  Array<{
+    guid: string;
+    name: string;
+    active: boolean;
+    revision: string;
+    revisionReliability: TimelineSnapshot["revisionReliability"];
+    projectItemId?: string;
+  }>
+> {
+  const active = await project.getActiveSequence();
+  const activeGuid = active ? guid(active.guid) : "";
+  const summaries = [];
+  for (const sequence of await project.getSequences()) {
+    let projectItemId: string | undefined;
+    try {
+      const item = await sequence.getProjectItem();
+      if (item) projectItemId = String(await item.getId());
+    } catch {
+      // A sequence can be transitioning between project-panel states.
+    }
+    const snapshot = await timelineSnapshot({ project, sequence });
+    summaries.push({
+      guid: guid(sequence.guid),
+      name: String(sequence.name || ""),
+      active: guid(sequence.guid) === activeGuid,
+      revision: snapshot.revision,
+      revisionReliability: snapshot.revisionReliability,
+      ...(projectItemId ? { projectItemId } : {}),
+    });
+  }
+  return summaries;
+}
+
+async function sequenceByGuid(
+  project: any,
+  requestedGuid: unknown,
+): Promise<any> {
+  const value = String(requestedGuid || "");
+  if (!value) throw new Error("sequenceGuid is required");
+  const sequence = (await project.getSequences()).find(
+    (candidate: any) => guid(candidate.guid) === value,
+  );
+  if (!sequence) throw new Error(`Sequence not found: ${value}`);
+  return sequence;
+}
+
+function rectSnapshot(value: any): { width: number; height: number } {
+  return { width: Number(value.width), height: Number(value.height) };
+}
+
+async function sequenceSettingsSnapshot(
+  sequence: any,
+): Promise<Record<string, unknown>> {
+  const settings = await sequence.getSettings();
+  const audioDisplay = await settings.getAudioDisplayFormat();
+  const videoDisplay = await settings.getVideoDisplayFormat();
+  const audioRate = await settings.getAudioSampleRate();
+  const videoRate = await settings.getVideoFrameRate();
+  return {
+    maximumBitDepth: Boolean(await settings.getMaximumBitDepth()),
+    maximumRenderQuality: Boolean(await settings.getMaxRenderQuality()),
+    audioChannelCount: Number(await settings.getAudioChannelCount()),
+    audioChannelType: Number(await settings.getAudioChannelType()),
+    audioDisplayFormat: Number(audioDisplay.type),
+    audioSampleRate: Number(audioRate.value),
+    videoDisplayFormat: Number(videoDisplay.type),
+    videoFieldType: Number(await settings.getVideoFieldType()),
+    videoFrameRate: Number(videoRate.value),
+    videoFrameRect: rectSnapshot(await settings.getVideoFrameRect()),
+    videoPixelAspectRatio: String(await settings.getVideoPixelAspectRatio()),
+    compositeInLinearColor: Boolean(await settings.getCompositeInLinearColor()),
+    editingMode: String(await settings.getEditingMode()),
+    previewFileFormat: String(await settings.getPreviewFileFormat()),
+    previewCodec: String(await settings.getPreviewCodec()),
+    previewFrameRect: rectSnapshot(await settings.getPreviewFrameRect()),
+  };
+}
+
+async function createSequence(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (payload.confirm !== true)
+    throw new Error("create_sequence requires confirm: true");
+  const { before, project } = await timelineMutationContext(payload);
+  const name = String(payload.name || "").trim();
+  if (!name) throw new Error("Sequence name is required");
+  const items = await fullProjectItems(project);
+  if (String(payload.expectedProjectItemsRevision || "") !== items.revision) {
+    throw new Error("Project items changed; read them again");
+  }
+  const presetFile = payload.presetFile
+    ? String(payload.presetFile)
+    : undefined;
+  const boundaryItems = await fullProjectItems(project);
+  if (boundaryItems.revision !== items.revision) {
+    throw new Error("Project items changed while preparing the sequence");
+  }
+  await assertMutationBoundary(before, payload);
+  const sequence = presetFile
+    ? await project.createSequenceWithPresetPath(name, presetFile)
+    : await project.createSequence(name);
+  if (!sequence) throw new Error("Premiere did not create the sequence");
+  const createdGuid = guid(sequence.guid);
+  const sequences = await sequenceSummaries(project);
+  if (!sequences.some((candidate) => candidate.guid === createdGuid)) {
+    throw new RequestUnknownOutcomeError(
+      "Sequence creation started, but its outcome could not be confirmed",
+    );
+  }
+  return { createdGuid, sequences };
+}
+
+async function createSequenceFromMedia(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (payload.confirm !== true)
+    throw new Error("create_sequence_from_media requires confirm: true");
+  const { before, project } = await timelineMutationContext(payload);
+  const name = String(payload.name || "").trim();
+  if (!name) throw new Error("Sequence name is required");
+  const requestedIds = payload.projectItemIds;
+  if (
+    !Array.isArray(requestedIds) ||
+    requestedIds.length === 0 ||
+    requestedIds.some((value) => typeof value !== "string" || !value)
+  ) {
+    throw new Error("projectItemIds must be a non-empty string array");
+  }
+  const items = await fullProjectItems(project);
+  if (String(payload.expectedProjectItemsRevision || "") !== items.revision) {
+    throw new Error("Project items changed; read them again");
+  }
+  const root = await project.getRootItem();
+  const clips = [];
+  for (const id of requestedIds) {
+    const item = await findProjectItem(root, id);
+    if (!item || item.type !== ppro.ProjectItem.TYPE_CLIP) {
+      throw new Error(`Clip project item not found: ${id}`);
+    }
+    clips.push(ppro.ClipProjectItem.cast(item));
+  }
+  let targetBin: any;
+  if (payload.targetBinId) {
+    const item = await findProjectItem(root, String(payload.targetBinId));
+    if (!item || item.type !== ppro.ProjectItem.TYPE_BIN) {
+      throw new Error("Target bin was not found");
+    }
+    targetBin = item;
+  }
+  const boundaryItems = await fullProjectItems(project);
+  if (boundaryItems.revision !== items.revision) {
+    throw new Error("Project items changed while preparing the sequence");
+  }
+  await assertMutationBoundary(before, payload);
+  const sequence = await project.createSequenceFromMedia(
+    name,
+    clips,
+    targetBin,
+  );
+  if (!sequence) throw new Error("Premiere did not create the sequence");
+  const createdGuid = guid(sequence.guid);
+  return { createdGuid, sequences: await sequenceSummaries(project) };
+}
+
+async function changeSequenceState(
+  operation: "delete" | "activate" | "open" | "close",
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (payload.confirm !== true)
+    throw new Error(`${operation}_sequence requires confirm: true`);
+  const { before, project } = await timelineMutationContext(payload);
+  const target = await sequenceByGuid(project, payload.sequenceGuid);
+  const expectedTargetRevision = String(
+    payload.expectedTargetSequenceRevision || "",
+  );
+  if (!expectedTargetRevision) {
+    throw new Error("expectedTargetSequenceRevision is required");
+  }
+  const targetBefore = await timelineSnapshot({ project, sequence: target });
+  if (targetBefore.revision !== expectedTargetRevision) {
+    throw new Error("Target sequence changed; list sequences again");
+  }
+  if (operation === "delete" && guid(target.guid) === before.sequence.guid) {
+    throw new Error("Activate another sequence before deleting this sequence");
+  }
+  await assertMutationBoundary(before, payload);
+  const targetBoundary = await timelineSnapshot({ project, sequence: target });
+  if (targetBoundary.revision !== expectedTargetRevision) {
+    throw new Error("Target sequence changed while preparing the operation");
+  }
+  await assertMutationBoundary(before, payload);
+  const success =
+    operation === "delete"
+      ? await project.deleteSequence(target)
+      : operation === "activate"
+        ? await project.setActiveSequence(target)
+        : operation === "open"
+          ? await project.openSequence(target)
+          : await project.closeSequence(target);
+  if (!success) throw new Error(`Premiere rejected ${operation} sequence`);
+  const sequences = await sequenceSummaries(project);
+  if (
+    operation === "delete" &&
+    sequences.some((candidate) => candidate.guid === guid(target.guid))
+  ) {
+    throw new RequestUnknownOutcomeError(
+      "Sequence deletion started, but the sequence is still present",
+    );
+  }
+  return { success: true, sequences };
+}
+
+async function cloneSequence(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (payload.confirm !== true)
+    throw new Error("clone_sequence requires confirm: true");
+  const { before, project } = await timelineMutationContext(payload);
+  const target = await sequenceByGuid(
+    project,
+    payload.sequenceGuid || before.sequence.guid,
+  );
+  if (guid(target.guid) !== before.sequence.guid) {
+    throw new Error("Only the active sequence can be cloned");
+  }
+  const previous = new Set(
+    (await project.getSequences()).map((sequence: any) => guid(sequence.guid)),
+  );
+  await execute(before, payload, project, "clone sequence", (action) => {
+    action.addAction(target.createCloneAction());
+  });
+  const sequences = await sequenceSummaries(project);
+  const created = sequences.find((sequence) => !previous.has(sequence.guid));
+  if (!created) {
+    throw new RequestUnknownOutcomeError(
+      "Sequence clone completed, but the new sequence could not be identified",
+    );
+  }
+  return { createdGuid: created.guid, sequences };
+}
+
+async function createSubsequence(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (payload.confirm !== true)
+    throw new Error("create_subsequence requires confirm: true");
+  const { before, project, sequence } = await timelineMutationContext(payload);
+  await assertMutationBoundary(before, payload);
+  const created = await sequence.createSubsequence(
+    payload.ignoreTrackTargeting === true,
+  );
+  if (!created) throw new Error("Premiere did not create a subsequence");
+  return {
+    createdGuid: guid(created.guid),
+    sequences: await sequenceSummaries(project),
+  };
+}
+
+async function setSequenceBounds(
+  payload: Record<string, unknown>,
+): Promise<TimelineSnapshot> {
+  if (payload.confirm !== true)
+    throw new Error("set_sequence_bounds requires confirm: true");
+  const { before, project, sequence } = await timelineMutationContext(payload);
+  const entries = [
+    ["inSeconds", "in"],
+    ["outSeconds", "out"],
+    ["zeroSeconds", "zero"],
+  ] as const;
+  const requested = entries.filter(([key]) => payload[key] !== undefined);
+  if (requested.length === 0)
+    throw new Error("At least one sequence bound is required");
+  await execute(before, payload, project, "set sequence bounds", (action) => {
+    for (const [key, kind] of requested) {
+      const value = finiteNumber(payload[key], key);
+      if (value < 0) throw new Error(`${key} must be >= 0`);
+      const time = ppro.TickTime.createWithSeconds(value);
+      action.addAction(
+        kind === "in"
+          ? sequence.createSetInPointAction(time)
+          : kind === "out"
+            ? sequence.createSetOutPointAction(time)
+            : sequence.createSetZeroPointAction(time),
+      );
+    }
+  });
+  return timelineSnapshot({ project, sequence });
+}
+
+async function setSequencePlayhead(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (payload.confirm !== true)
+    throw new Error("set_sequence_playhead requires confirm: true");
+  const { before, sequence } = await timelineMutationContext(payload);
+  const timeSeconds = finiteNumber(payload.timeSeconds, "timeSeconds");
+  if (timeSeconds < 0) throw new Error("timeSeconds must be >= 0");
+  await assertMutationBoundary(before, payload);
+  const success = await sequence.setPlayerPosition(
+    ppro.TickTime.createWithSeconds(timeSeconds),
+  );
+  if (!success) throw new Error("Premiere rejected the playhead position");
+  return { timeSeconds: seconds(await sequence.getPlayerPosition()) };
+}
+
+async function setSequenceSettings(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (payload.confirm !== true)
+    throw new Error("set_sequence_settings requires confirm: true");
+  const { before, project, sequence } = await timelineMutationContext(payload);
+  const changes = payload.settings;
+  if (!changes || typeof changes !== "object" || Array.isArray(changes)) {
+    throw new Error("settings must be an object");
+  }
+  const values = changes as Record<string, unknown>;
+  const settings = await sequence.getSettings();
+  const supported = new Set([
+    "maximumBitDepth",
+    "maximumRenderQuality",
+    "audioDisplayFormat",
+    "audioSampleRate",
+    "videoDisplayFormat",
+    "videoFieldType",
+    "videoFrameRate",
+    "videoFrameRect",
+    "videoPixelAspectRatio",
+    "compositeInLinearColor",
+    "editingMode",
+    "previewFileFormat",
+    "previewCodec",
+    "previewFrameRect",
+  ]);
+  const unknown = Object.keys(values).find((key) => !supported.has(key));
+  if (unknown) throw new Error(`Unsupported sequence setting: ${unknown}`);
+  if (Object.keys(values).length === 0)
+    throw new Error("At least one sequence setting is required");
+  if (values.maximumBitDepth !== undefined)
+    await settings.setMaximumBitDepth(
+      booleanValue(values.maximumBitDepth, "maximumBitDepth"),
+    );
+  if (values.maximumRenderQuality !== undefined)
+    await settings.setMaxRenderQuality(
+      booleanValue(values.maximumRenderQuality, "maximumRenderQuality"),
+    );
+  if (values.audioDisplayFormat !== undefined) {
+    const display = await settings.getAudioDisplayFormat();
+    display.type = integer(values.audioDisplayFormat, "audioDisplayFormat");
+    await settings.setAudioDisplayFormat(display);
+  }
+  if (values.audioSampleRate !== undefined)
+    await settings.setAudioSampleRate(
+      ppro.FrameRate.createWithValue(
+        finiteNumber(values.audioSampleRate, "audioSampleRate"),
+      ),
+    );
+  if (values.videoDisplayFormat !== undefined) {
+    const display = await settings.getVideoDisplayFormat();
+    display.type = integer(values.videoDisplayFormat, "videoDisplayFormat");
+    await settings.setVideoDisplayFormat(display);
+  }
+  if (values.videoFieldType !== undefined)
+    await settings.setVideoFieldType(
+      integer(values.videoFieldType, "videoFieldType"),
+    );
+  if (values.videoFrameRate !== undefined)
+    settings.setVideoFrameRate(
+      ppro.FrameRate.createWithValue(
+        finiteNumber(values.videoFrameRate, "videoFrameRate"),
+      ),
+    );
+  const setRect = async (
+    key: "videoFrameRect" | "previewFrameRect",
+  ): Promise<void> => {
+    const value = values[key];
+    if (value === undefined) return;
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw new Error(`${key} must be an object`);
+    const object = value as Record<string, unknown>;
+    const rect = ppro.RectF();
+    rect.width = integer(object.width, `${key}.width`, 1);
+    rect.height = integer(object.height, `${key}.height`, 1);
+    if (key === "videoFrameRect") await settings.setVideoFrameRect(rect);
+    else await settings.setPreviewFrameRect(rect);
+  };
+  await setRect("videoFrameRect");
+  await setRect("previewFrameRect");
+  if (values.videoPixelAspectRatio !== undefined)
+    await settings.setVideoPixelAspectRatio(
+      String(values.videoPixelAspectRatio),
+    );
+  if (values.compositeInLinearColor !== undefined)
+    await settings.setCompositeInLinearColor(
+      booleanValue(values.compositeInLinearColor, "compositeInLinearColor"),
+    );
+  if (values.editingMode !== undefined)
+    await settings.setEditingMode(String(values.editingMode));
+  if (values.previewFileFormat !== undefined)
+    await settings.setPreviewFileFormat(String(values.previewFileFormat));
+  if (values.previewCodec !== undefined)
+    await settings.setPreviewCodec(String(values.previewCodec));
+  await execute(before, payload, project, "set sequence settings", (action) => {
+    action.addAction(sequence.createSetSettingsAction(settings));
+  });
+  return sequenceSettingsSnapshot(sequence);
+}
+
+async function setTrackMuted(
+  payload: Record<string, unknown>,
+): Promise<TimelineSnapshot> {
+  if (payload.confirm !== true)
+    throw new Error("set_track_muted requires confirm: true");
+  const { before, project, sequence } = await timelineMutationContext(payload);
+  const mediaType = String(payload.mediaType || "");
+  if (mediaType !== "video" && mediaType !== "audio" && mediaType !== "caption")
+    throw new Error("mediaType must be video, audio, or caption");
+  const index = integer(payload.trackIndex, "trackIndex");
+  const track =
+    mediaType === "video"
+      ? await sequence.getVideoTrack(index)
+      : mediaType === "audio"
+        ? await sequence.getAudioTrack(index)
+        : await sequence.getCaptionTrack(index);
+  if (!track) throw new Error("Track not found");
+  await assertMutationBoundary(before, payload);
+  await track.setMute(booleanValue(payload.muted, "muted"));
+  if ((await track.isMuted()) !== payload.muted) {
+    throw new RequestUnknownOutcomeError(
+      "Track mute operation started, but its outcome could not be confirmed",
+    );
+  }
+  return timelineSnapshot({ project, sequence });
+}
+
+async function detectSceneEdits(
+  payload: Record<string, unknown>,
+): Promise<TimelineSnapshot> {
+  if (payload.confirm !== true)
+    throw new Error("detect_scene_edits requires confirm: true");
+  const { before, project, sequence } = await timelineMutationContext(payload);
+  const modes: Record<string, string> = {
+    cuts: ppro.SequenceUtils.SEQUENCE_OPERATION_APPLYCUT,
+    markers: ppro.SequenceUtils.SEQUENCE_OPERATION_CREATEMARKER,
+    subclips: ppro.SequenceUtils.SEQUENCE_OPERATION_CREATESUBCLIP,
+  };
+  const operation = modes[String(payload.mode || "")];
+  if (!operation) throw new Error("mode must be cuts, markers, or subclips");
+  const selection = await sequence.getSelection();
+  if ((await selection.getTrackItems()).length === 0)
+    throw new Error("Scene edit detection requires a timeline selection");
+  await assertMutationBoundary(before, payload);
+  const success = await ppro.SequenceUtils.performSceneEditDetectionOnSelection(
+    operation,
+    selection,
+  );
+  if (!success) throw new Error("Premiere rejected scene edit detection");
+  return timelineSnapshot({ project, sequence });
+}
+
 async function exportSequence(
   payload: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
@@ -1993,7 +2928,24 @@ async function handleRequest(
   if (message.operation === "get_editing_snapshot")
     return editingSnapshot(payload);
   if (message.operation === "get_active_sequence") return timelineSnapshot();
+  if (message.operation === "list_sequences") {
+    return sequenceSummaries(await activeProject());
+  }
+  if (message.operation === "get_sequence_settings") {
+    const { sequence } = await activeContext();
+    return sequenceSettingsSnapshot(sequence);
+  }
   if (message.operation === "get_project_items") return projectItems(payload);
+  if (message.operation === "get_project_item_details")
+    return projectItemDetails(payload);
+  if (message.operation === "find_project_items_by_media_path")
+    return findProjectItemsByMediaPath(payload);
+  if (message.operation === "get_source_monitor")
+    return sourceMonitorSnapshot();
+  if (message.operation === "query_transcript_languages")
+    return ppro.Transcript.querySupportedLanguages();
+  if (message.operation === "get_clip_transcript")
+    return clipTranscript(payload);
   if (message.operation === "get_track_item_components")
     return trackItemComponents(payload);
   if (message.operation === "get_editing_capabilities") {
@@ -2015,15 +2967,11 @@ async function handleRequest(
   if (message.operation === "save_project") {
     if (payload.confirm !== true)
       throw new Error("save_project requires confirm: true");
-    const project = await activeProject();
-    const projectGuid = guid(project.guid);
-    if (String(payload.expectedProjectGuid || "") !== projectGuid) {
-      throw new Error("Active project changed; read it again");
-    }
-    assertRequestActive(payload);
+    const { before, project } = await timelineMutationContext(payload);
+    await assertMutationBoundary(before, payload);
     if (!(await project.save()))
       throw new Error("Premiere did not save the project");
-    return { saved: true, projectGuid };
+    return { saved: true, projectGuid: before.project.guid };
   }
   if (message.operation === "import_media_file")
     return importMediaFile(payload);
@@ -2064,6 +3012,53 @@ async function handleRequest(
     return setComponentKeyframe(payload);
   if (message.operation === "remove_component_keyframe")
     return removeComponentKeyframe(payload);
+  if (message.operation === "create_sequence") return createSequence(payload);
+  if (message.operation === "create_sequence_from_media")
+    return createSequenceFromMedia(payload);
+  if (message.operation === "delete_sequence")
+    return changeSequenceState("delete", payload);
+  if (message.operation === "activate_sequence")
+    return changeSequenceState("activate", payload);
+  if (message.operation === "open_sequence")
+    return changeSequenceState("open", payload);
+  if (message.operation === "close_sequence")
+    return changeSequenceState("close", payload);
+  if (message.operation === "clone_sequence") return cloneSequence(payload);
+  if (message.operation === "create_subsequence")
+    return createSubsequence(payload);
+  if (message.operation === "set_sequence_bounds")
+    return setSequenceBounds(payload);
+  if (message.operation === "set_sequence_playhead")
+    return setSequencePlayhead(payload);
+  if (message.operation === "set_sequence_settings")
+    return setSequenceSettings(payload);
+  if (message.operation === "set_track_muted") return setTrackMuted(payload);
+  if (message.operation === "detect_scene_edits")
+    return detectSceneEdits(payload);
+  if (message.operation === "create_bin") return createBin(payload, false);
+  if (message.operation === "create_smart_bin") return createBin(payload, true);
+  if (message.operation === "update_project_item")
+    return updateProjectItem(payload);
+  if (message.operation === "move_project_item")
+    return moveProjectItem(payload);
+  if (message.operation === "update_clip_media")
+    return updateClipMedia(payload);
+  if (message.operation === "create_subclip") return createSubclip(payload);
+  if (message.operation === "set_clip_interpretation")
+    return setClipInterpretation(payload);
+  if (message.operation === "set_clip_bounds") return setClipBounds(payload);
+  if (message.operation === "source_monitor_open_file")
+    return sourceMonitorMutation("open-file", payload);
+  if (message.operation === "source_monitor_open_item")
+    return sourceMonitorMutation("open-item", payload);
+  if (message.operation === "source_monitor_close")
+    return sourceMonitorMutation("close", payload);
+  if (message.operation === "source_monitor_set_position")
+    return sourceMonitorMutation("position", payload);
+  if (message.operation === "source_monitor_play")
+    return sourceMonitorMutation("play", payload);
+  if (message.operation === "import_clip_transcript")
+    return importClipTranscript(payload);
   if (message.operation === "export_sequence") return exportSequence(payload);
   throw new Error(`Unsupported operation: ${String(message.operation)}`);
 }

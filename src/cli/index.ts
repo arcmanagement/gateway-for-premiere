@@ -6,6 +6,7 @@ import {
   copyFile,
   lstat,
   mkdir,
+  readFile,
   realpath,
   rm,
   stat,
@@ -15,6 +16,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   GATEWAY_PROTOCOL_TOKEN,
+  resolveApprovalMode,
   resolvePort,
   type GlobalOptions,
 } from "./config.js";
@@ -48,8 +50,9 @@ const HELP = `gateway-for-premiere - CLI + token-gated loopback broker + Gateway
 Usage:
   gateway-for-premiere --help
   gateway-for-premiere daemon
-  gateway-for-premiere daemon install
+  gateway-for-premiere daemon install [--approval-mode ask|auto|bypass]
   gateway-for-premiere daemon start|stop|restart|status
+  gateway-for-premiere daemon approval-mode ask|auto|bypass
   gateway-for-premiere daemon uninstall --confirm
   gateway-for-premiere doctor
   gateway-for-premiere status
@@ -60,45 +63,82 @@ Usage:
   gateway-for-premiere project [--session ID]
   gateway-for-premiere project recovery [--session ID]
   gateway-for-premiere project items [--depth N] [--session ID]
-  gateway-for-premiere project save --expect-project GUID [--session ID] --confirm
-  gateway-for-premiere project backup --output ABSOLUTE_PATH --expect-project GUID [--session ID] --confirm
-  gateway-for-premiere project import --input ABSOLUTE_PATH --expect-items-revision REVISION EXPECTATIONS --confirm
-  gateway-for-premiere project item remove --item-id ID --expect-items-revision REVISION EXPECTATIONS --confirm
+  gateway-for-premiere project item details --item-id ID [--session ID]
+  gateway-for-premiere project find-media --item-id ID --match TEXT [--ignore-subclips true|false] [--session ID]
+  gateway-for-premiere project bin create --name NAME [--parent-bin ID] [--make-unique true|false] --expect-items-revision REVISION EXPECTATIONS [--confirm]
+  gateway-for-premiere project bin create-smart --name NAME --search-query QUERY [--parent-bin ID] --expect-items-revision REVISION EXPECTATIONS [--confirm]
+  gateway-for-premiere project item update --item-id ID [--name NAME] [--color-label N] --expect-items-revision REVISION EXPECTATIONS [--confirm]
+  gateway-for-premiere project item move --item-id ID --target-bin ID --expect-items-revision REVISION EXPECTATIONS [--confirm]
+  gateway-for-premiere project clip media --item-id ID --action offline|refresh|attach-proxy|attach-hires|relink|scale-to-frame [--input FILE] --expect-items-revision REVISION EXPECTATIONS [--confirm]
+  gateway-for-premiere project clip subclip --item-id ID --name NAME --start-seconds N --end-seconds N --expect-items-revision REVISION EXPECTATIONS [--confirm]
+  gateway-for-premiere project clip interpretation --item-id ID --value JSON --expect-items-revision REVISION EXPECTATIONS [--confirm]
+  gateway-for-premiere project clip bounds --item-id ID [--in-seconds N --out-seconds N|--clear true] --expect-items-revision REVISION EXPECTATIONS [--confirm]
+  gateway-for-premiere transcript languages [--session ID]
+  gateway-for-premiere transcript export --item-id ID [--session ID]
+  gateway-for-premiere transcript import --item-id ID --input TRANSCRIPT.json --expect-items-revision REVISION EXPECTATIONS [--confirm]
+  gateway-for-premiere source-monitor [--session ID]
+  gateway-for-premiere source-monitor open-file --input FILE EXPECTATIONS [--confirm]
+  gateway-for-premiere source-monitor open-item --item-id ID EXPECTATIONS [--confirm]
+  gateway-for-premiere source-monitor close [--all true|false] EXPECTATIONS [--confirm]
+  gateway-for-premiere source-monitor position --time-seconds N EXPECTATIONS [--confirm]
+  gateway-for-premiere source-monitor play [--speed N] EXPECTATIONS [--confirm]
+  gateway-for-premiere project save EXPECTATIONS [--confirm]
+  gateway-for-premiere project backup --output ABSOLUTE_PATH EXPECTATIONS [--confirm]
+  gateway-for-premiere project import --input ABSOLUTE_PATH --expect-items-revision REVISION EXPECTATIONS [--confirm]
+  gateway-for-premiere project item remove --item-id ID --expect-items-revision REVISION EXPECTATIONS [--confirm]
   gateway-for-premiere sequence [--session ID]
-  gateway-for-premiere sequence export --output ABSOLUTE_PATH --preset PRESET.epr EXPECTATIONS --confirm
+  gateway-for-premiere sequence list [--session ID]
+  gateway-for-premiere sequence settings [--session ID]
+  gateway-for-premiere sequence create --name NAME [--preset PRESET.sqpreset] --expect-items-revision REVISION EXPECTATIONS [--confirm]
+  gateway-for-premiere sequence create-from-media --name NAME --project-items JSON [--target-bin ID] --expect-items-revision REVISION EXPECTATIONS [--confirm]
+  gateway-for-premiere sequence delete|activate|open|close --sequence-guid GUID --expect-target-revision REVISION EXPECTATIONS [--confirm]
+  gateway-for-premiere sequence clone [--sequence-guid GUID] EXPECTATIONS [--confirm]
+  gateway-for-premiere sequence subsequence [--ignore-track-targeting true|false] EXPECTATIONS [--confirm]
+  gateway-for-premiere sequence bounds [--in-seconds N] [--out-seconds N] [--zero-seconds N] EXPECTATIONS [--confirm]
+  gateway-for-premiere sequence playhead --time-seconds N EXPECTATIONS [--confirm]
+  gateway-for-premiere sequence settings update --value JSON EXPECTATIONS [--confirm]
+  gateway-for-premiere sequence scene-detect --mode cuts|markers|subclips EXPECTATIONS [--confirm]
+  gateway-for-premiere sequence export --output ABSOLUTE_PATH --preset PRESET.epr EXPECTATIONS [--confirm]
   gateway-for-premiere timeline trim --item-ref REF --expect-revision REVISION \
     --expect-project GUID --expect-sequence GUID [--start-seconds N] [--end-seconds N] \
-    [--session ID] --confirm
+    [--session ID] [--confirm]
   gateway-for-premiere timeline insert --project-item ID --time-seconds N \
-    --video-track N --audio-track N [--mode insert|overwrite] EXPECTATIONS --confirm
-  gateway-for-premiere timeline move --item-ref REF --offset-seconds N EXPECTATIONS --confirm
-  gateway-for-premiere timeline clone --item-ref REF --offset-seconds N EXPECTATIONS --confirm
-  gateway-for-premiere timeline remove --item-ref REF [--ripple true|false] EXPECTATIONS --confirm
-  gateway-for-premiere timeline update --item-ref REF [--name NAME] [--disabled true|false] EXPECTATIONS --confirm
-  gateway-for-premiere timeline track rename --media-type video|audio --track N --name NAME EXPECTATIONS --confirm
-  gateway-for-premiere timeline mogrt insert --input ABSOLUTE_PATH --time-seconds N --video-track N --audio-track N EXPECTATIONS --confirm
-  gateway-for-premiere timeline marker add --name NAME --time-seconds N [--duration-seconds N] [--comments TEXT] [--type comment|chapter|weblink|flv-cue-point] EXPECTATIONS --confirm
-  gateway-for-premiere timeline marker update --marker-guid GUID [--name NAME] [--duration-seconds N] [--comments TEXT] [--type comment|chapter|weblink|flv-cue-point] [--color-index 0..6] EXPECTATIONS --confirm
-  gateway-for-premiere timeline marker move --marker-guid GUID --time-seconds N EXPECTATIONS --confirm
-  gateway-for-premiere timeline marker remove --marker-guid GUID EXPECTATIONS --confirm
+    --video-track N --audio-track N [--mode insert|overwrite] EXPECTATIONS [--confirm]
+  gateway-for-premiere timeline move --item-ref REF --offset-seconds N EXPECTATIONS [--confirm]
+  gateway-for-premiere timeline clone --item-ref REF --offset-seconds N EXPECTATIONS [--confirm]
+  gateway-for-premiere timeline remove --item-ref REF [--ripple true|false] EXPECTATIONS [--confirm]
+  gateway-for-premiere timeline update --item-ref REF [--name NAME] [--disabled true|false] EXPECTATIONS [--confirm]
+  gateway-for-premiere timeline track rename --media-type video|audio --track N --name NAME EXPECTATIONS [--confirm]
+  gateway-for-premiere timeline track mute --media-type video|audio|caption --track N --muted true|false EXPECTATIONS [--confirm]
+  gateway-for-premiere timeline mogrt insert --input ABSOLUTE_PATH --time-seconds N --video-track N --audio-track N EXPECTATIONS [--confirm]
+  gateway-for-premiere timeline marker add --name NAME --time-seconds N [--duration-seconds N] [--comments TEXT] [--type comment|chapter|weblink|flv-cue-point] EXPECTATIONS [--confirm]
+  gateway-for-premiere timeline marker update --marker-guid GUID [--name NAME] [--duration-seconds N] [--comments TEXT] [--type comment|chapter|weblink|flv-cue-point] [--color-index 0..6] EXPECTATIONS [--confirm]
+  gateway-for-premiere timeline marker move --marker-guid GUID --time-seconds N EXPECTATIONS [--confirm]
+  gateway-for-premiere timeline marker remove --marker-guid GUID EXPECTATIONS [--confirm]
   gateway-for-premiere timeline components --item-ref REF EXPECTATIONS
-  gateway-for-premiere timeline transition add --item-ref REF --match-name NAME --position start|end EXPECTATIONS --confirm
-  gateway-for-premiere timeline transition remove --item-ref REF --position start|end EXPECTATIONS --confirm
-  gateway-for-premiere timeline effect add --item-ref VIDEO_REF --match-name NAME EXPECTATIONS --confirm
-  gateway-for-premiere timeline effect add --item-ref AUDIO_REF --display-name NAME EXPECTATIONS --confirm
-  gateway-for-premiere timeline effect remove --item-ref REF --component-index N EXPECTATIONS --confirm
+  gateway-for-premiere timeline transition add --item-ref REF --match-name NAME --position start|end EXPECTATIONS [--confirm]
+  gateway-for-premiere timeline transition remove --item-ref REF --position start|end EXPECTATIONS [--confirm]
+  gateway-for-premiere timeline effect add --item-ref VIDEO_REF --match-name NAME EXPECTATIONS [--confirm]
+  gateway-for-premiere timeline effect add --item-ref AUDIO_REF --display-name NAME EXPECTATIONS [--confirm]
+  gateway-for-premiere timeline effect remove --item-ref REF --component-index N EXPECTATIONS [--confirm]
   gateway-for-premiere timeline effect set-param --item-ref REF --component-index N \
-    --param-index N --value JSON EXPECTATIONS --confirm
+    --param-index N --value JSON EXPECTATIONS [--confirm]
   gateway-for-premiere timeline effect set-keyframe --item-ref REF --component-index N \
-    --param-index N --time-seconds N --value JSON [--interpolation linear|hold|bezier|time] EXPECTATIONS --confirm
+    --param-index N --time-seconds N --value JSON [--interpolation linear|hold|bezier|time] EXPECTATIONS [--confirm]
   gateway-for-premiere timeline effect remove-keyframe --item-ref REF --component-index N \
-    --param-index N --time-seconds N EXPECTATIONS --confirm
+    --param-index N --time-seconds N EXPECTATIONS [--confirm]
 
 EXPECTATIONS:
   --expect-project GUID --expect-sequence GUID --expect-revision REVISION [--session ID]
   --request-id ID is a fail-closed idempotency key and is never replayed
   Incomplete snapshots require --allow-incomplete-revision true after visual review
   Opaque-transition-only snapshots also accept the narrower --allow-opaque-transitions true
+
+APPROVAL MODES:
+  ask     Every mutation requires --confirm (default)
+  auto    Explicitly classified low-risk, undoable edits may omit --confirm
+  bypass  Any allowlisted mutation may omit --confirm
+  All modes still enforce the active project, sequence, revision, and request journal
 
 `;
 
@@ -458,7 +498,12 @@ async function refreshDoctorHealth(
 }
 
 async function foregroundDaemon(port: number, writer: Writer): Promise<void> {
-  const server = new GatewayServer(port, GATEWAY_PROTOCOL_TOKEN);
+  const server = new GatewayServer(
+    port,
+    GATEWAY_PROTOCOL_TOKEN,
+    Date.now,
+    resolveApprovalMode(),
+  );
   const pidFile = process.env.GATEWAY_FOR_PREMIERE_PID_FILE;
   try {
     await server.start();
@@ -713,12 +758,751 @@ export async function runCli(
       ),
     );
   }
+  if (
+    parsedCommand === "project" &&
+    action === "item" &&
+    parsed.positionals[2] === "details"
+  ) {
+    ensurePositionals(parsed.positionals, ["project", "item", "details"]);
+    ensureOptions(parsed.options, ["--item-id", "--session"]);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "get_project_item_details",
+        { projectItemId: required(parsed.options, "--item-id") },
+        session,
+      ),
+    );
+  }
+  if (parsedCommand === "project" && action === "find-media") {
+    ensurePositionals(parsed.positionals, ["project", "find-media"]);
+    ensureOptions(parsed.options, [
+      "--item-id",
+      "--match",
+      "--ignore-subclips",
+      "--session",
+    ]);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "find_project_items_by_media_path",
+        {
+          projectItemId: required(parsed.options, "--item-id"),
+          match: required(parsed.options, "--match"),
+          ignoreSubclips: booleanOption(
+            parsed.options,
+            "--ignore-subclips",
+            true,
+          ),
+        },
+        session,
+      ),
+    );
+  }
+  if (
+    parsedCommand === "project" &&
+    action === "bin" &&
+    (parsed.positionals[2] === "create" ||
+      parsed.positionals[2] === "create-smart")
+  ) {
+    const smart = parsed.positionals[2] === "create-smart";
+    ensurePositionals(parsed.positionals, [
+      "project",
+      "bin",
+      smart ? "create-smart" : "create",
+    ]);
+    ensureOptions(parsed.options, [
+      ...MUTATION_OPTIONS,
+      "--name",
+      "--parent-bin",
+      "--make-unique",
+      "--search-query",
+      "--expect-items-revision",
+    ]);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        smart ? "create_smart_bin" : "create_bin",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          name: required(parsed.options, "--name"),
+          expectedProjectItemsRevision: required(
+            parsed.options,
+            "--expect-items-revision",
+          ),
+          ...(typeof parsed.options.get("--parent-bin") === "string"
+            ? { parentBinId: parsed.options.get("--parent-bin") }
+            : {}),
+          ...(smart
+            ? { searchQuery: required(parsed.options, "--search-query") }
+            : {
+                makeUnique: booleanOption(
+                  parsed.options,
+                  "--make-unique",
+                  true,
+                ),
+              }),
+        },
+        session,
+      ),
+    );
+  }
+  if (
+    parsedCommand === "project" &&
+    action === "item" &&
+    parsed.positionals[2] === "update"
+  ) {
+    ensurePositionals(parsed.positionals, ["project", "item", "update"]);
+    ensureOptions(parsed.options, [
+      ...MUTATION_OPTIONS,
+      "--item-id",
+      "--name",
+      "--color-label",
+      "--expect-items-revision",
+    ]);
+    const name = parsed.options.get("--name");
+    const colorLabelIndex = integerOption(
+      parsed.options,
+      "--color-label",
+      false,
+    );
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "update_project_item",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          projectItemId: required(parsed.options, "--item-id"),
+          expectedProjectItemsRevision: required(
+            parsed.options,
+            "--expect-items-revision",
+          ),
+          ...(typeof name === "string" ? { name } : {}),
+          ...(colorLabelIndex !== undefined ? { colorLabelIndex } : {}),
+        },
+        session,
+      ),
+    );
+  }
+  if (
+    parsedCommand === "project" &&
+    action === "item" &&
+    parsed.positionals[2] === "move"
+  ) {
+    ensurePositionals(parsed.positionals, ["project", "item", "move"]);
+    ensureOptions(parsed.options, [
+      ...MUTATION_OPTIONS,
+      "--item-id",
+      "--target-bin",
+      "--expect-items-revision",
+    ]);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "move_project_item",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          projectItemId: required(parsed.options, "--item-id"),
+          targetBinId: required(parsed.options, "--target-bin"),
+          expectedProjectItemsRevision: required(
+            parsed.options,
+            "--expect-items-revision",
+          ),
+        },
+        session,
+      ),
+    );
+  }
+  if (
+    parsedCommand === "project" &&
+    action === "clip" &&
+    parsed.positionals[2] === "media"
+  ) {
+    ensurePositionals(parsed.positionals, ["project", "clip", "media"]);
+    ensureOptions(parsed.options, [
+      ...MUTATION_OPTIONS,
+      "--item-id",
+      "--action",
+      "--input",
+      "--make-alternate-link",
+      "--override-compatibility-check",
+      "--expect-items-revision",
+    ]);
+    const mediaAction = required(parsed.options, "--action");
+    const input = parsed.options.get("--input");
+    const mediaPath =
+      typeof input === "string" ? await realpath(input) : undefined;
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "update_clip_media",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          projectItemId: required(parsed.options, "--item-id"),
+          expectedProjectItemsRevision: required(
+            parsed.options,
+            "--expect-items-revision",
+          ),
+          action: mediaAction,
+          ...(mediaPath ? { mediaPath } : {}),
+          makeAlternateLinkInTeamProjects: booleanOption(
+            parsed.options,
+            "--make-alternate-link",
+            false,
+          ),
+          overrideCompatibilityCheck: booleanOption(
+            parsed.options,
+            "--override-compatibility-check",
+            false,
+          ),
+        },
+        session,
+      ),
+    );
+  }
+  if (
+    parsedCommand === "project" &&
+    action === "clip" &&
+    parsed.positionals[2] === "subclip"
+  ) {
+    ensurePositionals(parsed.positionals, ["project", "clip", "subclip"]);
+    ensureOptions(parsed.options, [
+      ...MUTATION_OPTIONS,
+      "--item-id",
+      "--name",
+      "--start-seconds",
+      "--end-seconds",
+      "--hard-boundaries",
+      "--take-video",
+      "--take-audio",
+      "--expect-items-revision",
+    ]);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "create_subclip",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          projectItemId: required(parsed.options, "--item-id"),
+          expectedProjectItemsRevision: required(
+            parsed.options,
+            "--expect-items-revision",
+          ),
+          name: required(parsed.options, "--name"),
+          startSeconds: numberOption(parsed.options, "--start-seconds"),
+          endSeconds: numberOption(parsed.options, "--end-seconds"),
+          hardBoundaries: booleanOption(
+            parsed.options,
+            "--hard-boundaries",
+            true,
+          ),
+          takeVideo: booleanOption(parsed.options, "--take-video", true),
+          takeAudio: booleanOption(parsed.options, "--take-audio", true),
+        },
+        session,
+      ),
+    );
+  }
+  if (
+    parsedCommand === "project" &&
+    action === "clip" &&
+    parsed.positionals[2] === "interpretation"
+  ) {
+    ensurePositionals(parsed.positionals, [
+      "project",
+      "clip",
+      "interpretation",
+    ]);
+    ensureOptions(parsed.options, [
+      ...MUTATION_OPTIONS,
+      "--item-id",
+      "--value",
+      "--expect-items-revision",
+    ]);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "set_clip_interpretation",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          projectItemId: required(parsed.options, "--item-id"),
+          expectedProjectItemsRevision: required(
+            parsed.options,
+            "--expect-items-revision",
+          ),
+          interpretation: jsonOption(parsed.options, "--value"),
+        },
+        session,
+      ),
+    );
+  }
+  if (
+    parsedCommand === "project" &&
+    action === "clip" &&
+    parsed.positionals[2] === "bounds"
+  ) {
+    ensurePositionals(parsed.positionals, ["project", "clip", "bounds"]);
+    ensureOptions(parsed.options, [
+      ...MUTATION_OPTIONS,
+      "--item-id",
+      "--in-seconds",
+      "--out-seconds",
+      "--clear",
+      "--expect-items-revision",
+    ]);
+    const inSeconds = optionalNumber(parsed.options, "--in-seconds");
+    const outSeconds = optionalNumber(parsed.options, "--out-seconds");
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "set_clip_bounds",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          projectItemId: required(parsed.options, "--item-id"),
+          expectedProjectItemsRevision: required(
+            parsed.options,
+            "--expect-items-revision",
+          ),
+          clear: booleanOption(parsed.options, "--clear", false),
+          ...(inSeconds !== undefined ? { inSeconds } : {}),
+          ...(outSeconds !== undefined ? { outSeconds } : {}),
+        },
+        session,
+      ),
+    );
+  }
+  if (parsedCommand === "transcript" && action === "languages") {
+    ensurePositionals(parsed.positionals, ["transcript", "languages"]);
+    ensureOptions(parsed.options, ["--session"]);
+    return output(
+      writer,
+      await call(fetcher, port, "query_transcript_languages", {}, session),
+    );
+  }
+  if (parsedCommand === "transcript" && action === "export") {
+    ensurePositionals(parsed.positionals, ["transcript", "export"]);
+    ensureOptions(parsed.options, ["--item-id", "--session"]);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "get_clip_transcript",
+        { projectItemId: required(parsed.options, "--item-id") },
+        session,
+      ),
+    );
+  }
+  if (parsedCommand === "transcript" && action === "import") {
+    ensurePositionals(parsed.positionals, ["transcript", "import"]);
+    ensureOptions(parsed.options, [
+      ...MUTATION_OPTIONS,
+      "--item-id",
+      "--input",
+      "--expect-items-revision",
+    ]);
+    const inputFile = await realpath(required(parsed.options, "--input"));
+    const transcript = await readFile(inputFile, "utf8");
+    JSON.parse(transcript);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "import_clip_transcript",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          projectItemId: required(parsed.options, "--item-id"),
+          expectedProjectItemsRevision: required(
+            parsed.options,
+            "--expect-items-revision",
+          ),
+          transcript,
+        },
+        session,
+      ),
+    );
+  }
+  if (parsedCommand === "source-monitor" && action === undefined) {
+    ensurePositionals(parsed.positionals, ["source-monitor"]);
+    ensureOptions(parsed.options, ["--session"]);
+    return output(
+      writer,
+      await call(fetcher, port, "get_source_monitor", {}, session),
+    );
+  }
+  if (parsedCommand === "source-monitor" && action === "open-file") {
+    ensurePositionals(parsed.positionals, ["source-monitor", "open-file"]);
+    ensureOptions(parsed.options, [...MUTATION_OPTIONS, "--input"]);
+    const filePath = await realpath(required(parsed.options, "--input"));
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "source_monitor_open_file",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          filePath,
+        },
+        session,
+      ),
+    );
+  }
+  if (parsedCommand === "source-monitor" && action === "open-item") {
+    ensurePositionals(parsed.positionals, ["source-monitor", "open-item"]);
+    ensureOptions(parsed.options, [...MUTATION_OPTIONS, "--item-id"]);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "source_monitor_open_item",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          projectItemId: required(parsed.options, "--item-id"),
+        },
+        session,
+      ),
+    );
+  }
+  if (parsedCommand === "source-monitor" && action === "close") {
+    ensurePositionals(parsed.positionals, ["source-monitor", "close"]);
+    ensureOptions(parsed.options, [...MUTATION_OPTIONS, "--all"]);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "source_monitor_close",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          all: booleanOption(parsed.options, "--all", false),
+        },
+        session,
+      ),
+    );
+  }
+  if (parsedCommand === "source-monitor" && action === "position") {
+    ensurePositionals(parsed.positionals, ["source-monitor", "position"]);
+    ensureOptions(parsed.options, [...MUTATION_OPTIONS, "--time-seconds"]);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "source_monitor_set_position",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          timeSeconds: numberOption(parsed.options, "--time-seconds"),
+        },
+        session,
+      ),
+    );
+  }
+  if (parsedCommand === "source-monitor" && action === "play") {
+    ensurePositionals(parsed.positionals, ["source-monitor", "play"]);
+    ensureOptions(parsed.options, [...MUTATION_OPTIONS, "--speed"]);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "source_monitor_play",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          speed: numberOption(parsed.options, "--speed", false) ?? 1,
+        },
+        session,
+      ),
+    );
+  }
   if (parsedCommand === "sequence" && action === undefined) {
     ensurePositionals(parsed.positionals, ["sequence"]);
     ensureOptions(parsed.options, ["--session"]);
     return output(
       writer,
       await call(fetcher, port, "get_active_sequence", {}, session),
+    );
+  }
+  if (parsedCommand === "sequence" && action === "list") {
+    ensurePositionals(parsed.positionals, ["sequence", "list"]);
+    ensureOptions(parsed.options, ["--session"]);
+    return output(
+      writer,
+      await call(fetcher, port, "list_sequences", {}, session),
+    );
+  }
+  if (
+    parsedCommand === "sequence" &&
+    action === "settings" &&
+    parsed.positionals.length === 2
+  ) {
+    ensurePositionals(parsed.positionals, ["sequence", "settings"]);
+    ensureOptions(parsed.options, ["--session"]);
+    return output(
+      writer,
+      await call(fetcher, port, "get_sequence_settings", {}, session),
+    );
+  }
+  if (parsedCommand === "sequence" && action === "create") {
+    ensurePositionals(parsed.positionals, ["sequence", "create"]);
+    ensureOptions(parsed.options, [
+      ...MUTATION_OPTIONS,
+      "--name",
+      "--preset",
+      "--expect-items-revision",
+    ]);
+    const preset = parsed.options.get("--preset");
+    const presetFile =
+      typeof preset === "string" ? await realpath(preset) : undefined;
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "create_sequence",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          name: required(parsed.options, "--name"),
+          expectedProjectItemsRevision: required(
+            parsed.options,
+            "--expect-items-revision",
+          ),
+          ...(presetFile ? { presetFile } : {}),
+        },
+        session,
+      ),
+    );
+  }
+  if (parsedCommand === "sequence" && action === "create-from-media") {
+    ensurePositionals(parsed.positionals, ["sequence", "create-from-media"]);
+    ensureOptions(parsed.options, [
+      ...MUTATION_OPTIONS,
+      "--name",
+      "--project-items",
+      "--target-bin",
+      "--expect-items-revision",
+    ]);
+    const projectItemIds = jsonOption(parsed.options, "--project-items");
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "create_sequence_from_media",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          name: required(parsed.options, "--name"),
+          projectItemIds,
+          expectedProjectItemsRevision: required(
+            parsed.options,
+            "--expect-items-revision",
+          ),
+          ...(typeof parsed.options.get("--target-bin") === "string"
+            ? { targetBinId: parsed.options.get("--target-bin") }
+            : {}),
+        },
+        session,
+      ),
+    );
+  }
+  if (
+    parsedCommand === "sequence" &&
+    ["delete", "activate", "open", "close"].includes(String(action))
+  ) {
+    ensurePositionals(parsed.positionals, ["sequence", String(action)]);
+    ensureOptions(parsed.options, [
+      ...MUTATION_OPTIONS,
+      "--sequence-guid",
+      "--expect-target-revision",
+    ]);
+    const operations = {
+      delete: "delete_sequence",
+      activate: "activate_sequence",
+      open: "open_sequence",
+      close: "close_sequence",
+    } as const;
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        operations[action as keyof typeof operations],
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          sequenceGuid: required(parsed.options, "--sequence-guid"),
+          expectedTargetSequenceRevision: required(
+            parsed.options,
+            "--expect-target-revision",
+          ),
+        },
+        session,
+      ),
+    );
+  }
+  if (parsedCommand === "sequence" && action === "clone") {
+    ensurePositionals(parsed.positionals, ["sequence", "clone"]);
+    ensureOptions(parsed.options, [...MUTATION_OPTIONS, "--sequence-guid"]);
+    const sequenceGuid = parsed.options.get("--sequence-guid");
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "clone_sequence",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          ...(typeof sequenceGuid === "string" ? { sequenceGuid } : {}),
+        },
+        session,
+      ),
+    );
+  }
+  if (parsedCommand === "sequence" && action === "subsequence") {
+    ensurePositionals(parsed.positionals, ["sequence", "subsequence"]);
+    ensureOptions(parsed.options, [
+      ...MUTATION_OPTIONS,
+      "--ignore-track-targeting",
+    ]);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "create_subsequence",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          ignoreTrackTargeting: booleanOption(
+            parsed.options,
+            "--ignore-track-targeting",
+            false,
+          ),
+        },
+        session,
+      ),
+    );
+  }
+  if (parsedCommand === "sequence" && action === "bounds") {
+    ensurePositionals(parsed.positionals, ["sequence", "bounds"]);
+    ensureOptions(parsed.options, [
+      ...MUTATION_OPTIONS,
+      "--in-seconds",
+      "--out-seconds",
+      "--zero-seconds",
+    ]);
+    const inSeconds = optionalNumber(parsed.options, "--in-seconds");
+    const outSeconds = optionalNumber(parsed.options, "--out-seconds");
+    const zeroSeconds = optionalNumber(parsed.options, "--zero-seconds");
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "set_sequence_bounds",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          ...(inSeconds !== undefined ? { inSeconds } : {}),
+          ...(outSeconds !== undefined ? { outSeconds } : {}),
+          ...(zeroSeconds !== undefined ? { zeroSeconds } : {}),
+        },
+        session,
+      ),
+    );
+  }
+  if (parsedCommand === "sequence" && action === "playhead") {
+    ensurePositionals(parsed.positionals, ["sequence", "playhead"]);
+    ensureOptions(parsed.options, [...MUTATION_OPTIONS, "--time-seconds"]);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "set_sequence_playhead",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          timeSeconds: numberOption(parsed.options, "--time-seconds"),
+        },
+        session,
+      ),
+    );
+  }
+  if (
+    parsedCommand === "sequence" &&
+    action === "settings" &&
+    parsed.positionals[2] === "update"
+  ) {
+    ensurePositionals(parsed.positionals, ["sequence", "settings", "update"]);
+    ensureOptions(parsed.options, [...MUTATION_OPTIONS, "--value"]);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "set_sequence_settings",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          settings: jsonOption(parsed.options, "--value"),
+        },
+        session,
+      ),
+    );
+  }
+  if (parsedCommand === "sequence" && action === "scene-detect") {
+    ensurePositionals(parsed.positionals, ["sequence", "scene-detect"]);
+    ensureOptions(parsed.options, [...MUTATION_OPTIONS, "--mode"]);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "detect_scene_edits",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          mode: required(parsed.options, "--mode"),
+        },
+        session,
+      ),
     );
   }
   if (parsedCommand === "sequence" && action === "export") {
@@ -729,8 +1513,6 @@ export async function runCli(
       "--preset",
       "--full",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("sequence export requires --confirm");
     const paths = await exportPaths(
       required(parsed.options, "--output"),
       required(parsed.options, "--preset"),
@@ -742,7 +1524,7 @@ export async function runCli(
         port,
         "export_sequence",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           ...paths,
           exportFull: booleanOption(parsed.options, "--full", true),
@@ -753,15 +1535,7 @@ export async function runCli(
   }
   if (parsedCommand === "project" && action === "backup") {
     ensurePositionals(parsed.positionals, ["project", "backup"]);
-    ensureOptions(parsed.options, [
-      "--confirm",
-      "--request-id",
-      "--output",
-      "--expect-project",
-      "--session",
-    ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("project backup requires --confirm");
+    ensureOptions(parsed.options, [...MUTATION_OPTIONS, "--output"]);
     const expectedProjectGuid = required(parsed.options, "--expect-project");
     const projectInfo = (await call(
       fetcher,
@@ -783,9 +1557,8 @@ export async function runCli(
       port,
       "save_project",
       {
-        confirm: true,
-        expectedProjectGuid,
-        ...requestIdArgument(parsed.options),
+        ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+        ...expectations(parsed.options),
       },
       session,
     )) as { requestId?: string };
@@ -802,14 +1575,7 @@ export async function runCli(
   }
   if (parsedCommand === "project" && action === "save") {
     ensurePositionals(parsed.positionals, ["project", "save"]);
-    ensureOptions(parsed.options, [
-      "--confirm",
-      "--request-id",
-      "--expect-project",
-      "--session",
-    ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("project save requires --confirm");
+    ensureOptions(parsed.options, MUTATION_OPTIONS);
     return output(
       writer,
       await call(
@@ -817,9 +1583,8 @@ export async function runCli(
         port,
         "save_project",
         {
-          confirm: true,
-          expectedProjectGuid: required(parsed.options, "--expect-project"),
-          ...requestIdArgument(parsed.options),
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
         },
         session,
       ),
@@ -832,8 +1597,6 @@ export async function runCli(
       "--input",
       "--expect-items-revision",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("project import requires --confirm");
     const inputFile = await realpath(required(parsed.options, "--input"));
     const inputStat = await stat(inputFile);
     if (!inputStat.isFile()) throw new Error("--input must be a file");
@@ -846,7 +1609,7 @@ export async function runCli(
         port,
         "import_media_file",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           expectedProjectItemsRevision: required(
             parsed.options,
@@ -869,8 +1632,6 @@ export async function runCli(
       "--item-id",
       "--expect-items-revision",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("project item remove requires --confirm");
     return output(
       writer,
       await call(
@@ -878,13 +1639,42 @@ export async function runCli(
         port,
         "remove_project_item",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           expectedProjectItemsRevision: required(
             parsed.options,
             "--expect-items-revision",
           ),
           projectItemId: required(parsed.options, "--item-id"),
+        },
+        session,
+      ),
+    );
+  }
+  if (
+    parsedCommand === "timeline" &&
+    action === "track" &&
+    parsed.positionals[2] === "mute"
+  ) {
+    ensurePositionals(parsed.positionals, ["timeline", "track", "mute"]);
+    ensureOptions(parsed.options, [
+      ...MUTATION_OPTIONS,
+      "--media-type",
+      "--track",
+      "--muted",
+    ]);
+    return output(
+      writer,
+      await call(
+        fetcher,
+        port,
+        "set_track_muted",
+        {
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
+          ...expectations(parsed.options),
+          mediaType: required(parsed.options, "--media-type"),
+          trackIndex: integerOption(parsed.options, "--track"),
+          muted: booleanOption(parsed.options, "--muted"),
         },
         session,
       ),
@@ -902,8 +1692,6 @@ export async function runCli(
       "--track",
       "--name",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline track rename requires --confirm");
     const mediaType = required(parsed.options, "--media-type");
     if (mediaType !== "video" && mediaType !== "audio")
       throw new Error("--media-type must be video or audio");
@@ -916,7 +1704,7 @@ export async function runCli(
         port,
         "update_track",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           mediaType,
           trackIndex,
@@ -934,8 +1722,6 @@ export async function runCli(
       "--start-seconds",
       "--end-seconds",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline trim requires --confirm");
     const startSeconds = optionalNumber(parsed.options, "--start-seconds");
     const endSeconds = optionalNumber(parsed.options, "--end-seconds");
     if (startSeconds === undefined && endSeconds === undefined) {
@@ -950,7 +1736,7 @@ export async function runCli(
         port,
         "trim_track_item",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           itemRef: required(parsed.options, "--item-ref"),
           ...expectations(parsed.options),
           ...(startSeconds !== undefined ? { startSeconds } : {}),
@@ -971,8 +1757,6 @@ export async function runCli(
       "--mode",
       "--limit-shift",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline insert requires --confirm");
     const mode = String(parsed.options.get("--mode") || "insert");
     if (!new Set(["insert", "overwrite"]).has(mode))
       throw new Error("--mode must be insert or overwrite");
@@ -989,7 +1773,7 @@ export async function runCli(
         port,
         "insert_project_item",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           projectItemId: required(parsed.options, "--project-item"),
           timeSeconds,
@@ -1009,8 +1793,6 @@ export async function runCli(
       "--item-ref",
       "--offset-seconds",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline move requires --confirm");
     return output(
       writer,
       await call(
@@ -1018,7 +1800,7 @@ export async function runCli(
         port,
         "move_track_item",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           itemRef: required(parsed.options, "--item-ref"),
           offsetSeconds: numberOption(parsed.options, "--offset-seconds"),
@@ -1038,8 +1820,6 @@ export async function runCli(
       "--align-to-video",
       "--insert",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline clone requires --confirm");
     return output(
       writer,
       await call(
@@ -1047,7 +1827,7 @@ export async function runCli(
         port,
         "clone_track_item",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           itemRef: required(parsed.options, "--item-ref"),
           offsetSeconds: numberOption(parsed.options, "--offset-seconds"),
@@ -1070,8 +1850,6 @@ export async function runCli(
       "--ripple",
       "--shift-overlapping",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline remove requires --confirm");
     return output(
       writer,
       await call(
@@ -1079,7 +1857,7 @@ export async function runCli(
         port,
         "remove_track_item",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           itemRef: required(parsed.options, "--item-ref"),
           ripple: booleanOption(parsed.options, "--ripple", false),
@@ -1101,8 +1879,6 @@ export async function runCli(
       "--name",
       "--disabled",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline update requires --confirm");
     const name = parsed.options.get("--name");
     const disabled = booleanOption(parsed.options, "--disabled");
     if (typeof name !== "string" && disabled === undefined)
@@ -1114,7 +1890,7 @@ export async function runCli(
         port,
         "update_track_item",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           itemRef: required(parsed.options, "--item-ref"),
           ...(typeof name === "string" ? { name } : {}),
@@ -1137,8 +1913,6 @@ export async function runCli(
       "--video-track",
       "--audio-track",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline mogrt insert requires --confirm");
     const inputFile = await realpath(required(parsed.options, "--input"));
     const inputStat = await stat(inputFile);
     if (
@@ -1159,7 +1933,7 @@ export async function runCli(
         port,
         "insert_mogrt",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           inputFile,
           timeSeconds,
@@ -1184,8 +1958,6 @@ export async function runCli(
       "--comments",
       "--type",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline marker add requires --confirm");
     const timeSeconds = numberOption(parsed.options, "--time-seconds")!;
     const durationSeconds = numberOption(
       parsed.options,
@@ -1202,7 +1974,7 @@ export async function runCli(
         port,
         "add_sequence_marker",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           name: required(parsed.options, "--name"),
           timeSeconds,
@@ -1229,8 +2001,6 @@ export async function runCli(
       "--type",
       "--color-index",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline marker update requires --confirm");
     const name = parsed.options.get("--name");
     const comments = parsed.options.get("--comments");
     const markerType = parsed.options.get("--type");
@@ -1260,7 +2030,7 @@ export async function runCli(
         port,
         "update_sequence_marker",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           markerGuid: required(parsed.options, "--marker-guid"),
           ...(typeof name === "string" ? { name } : {}),
@@ -1284,8 +2054,6 @@ export async function runCli(
       "--marker-guid",
       "--time-seconds",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline marker move requires --confirm");
     const timeSeconds = numberOption(parsed.options, "--time-seconds")!;
     if (timeSeconds < 0) throw new Error("--time-seconds must be >= 0");
     return output(
@@ -1295,7 +2063,7 @@ export async function runCli(
         port,
         "move_sequence_marker",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           markerGuid: required(parsed.options, "--marker-guid"),
           timeSeconds,
@@ -1311,8 +2079,6 @@ export async function runCli(
   ) {
     ensurePositionals(parsed.positionals, ["timeline", "marker", "remove"]);
     ensureOptions(parsed.options, [...MUTATION_OPTIONS, "--marker-guid"]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline marker remove requires --confirm");
     return output(
       writer,
       await call(
@@ -1320,7 +2086,7 @@ export async function runCli(
         port,
         "remove_sequence_marker",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           markerGuid: required(parsed.options, "--marker-guid"),
         },
@@ -1359,8 +2125,6 @@ export async function runCli(
       "--duration-seconds",
       "--force-single-sided",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline transition add requires --confirm");
     const durationSeconds = numberOption(
       parsed.options,
       "--duration-seconds",
@@ -1375,7 +2139,7 @@ export async function runCli(
         port,
         "add_video_transition",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           itemRef: required(parsed.options, "--item-ref"),
           matchName: required(parsed.options, "--match-name"),
@@ -1402,8 +2166,6 @@ export async function runCli(
       "--item-ref",
       "--position",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline transition remove requires --confirm");
     return output(
       writer,
       await call(
@@ -1411,7 +2173,7 @@ export async function runCli(
         port,
         "remove_video_transition",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           itemRef: required(parsed.options, "--item-ref"),
           position: required(parsed.options, "--position"),
@@ -1433,8 +2195,6 @@ export async function runCli(
       "--display-name",
       "--insertion-index",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline effect add requires --confirm");
     const itemRef = required(parsed.options, "--item-ref");
     const audio = itemRef.startsWith("audio:");
     const insertionIndex = integerOption(
@@ -1460,7 +2220,7 @@ export async function runCli(
         port,
         audio ? "add_audio_effect" : "add_video_effect",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           itemRef,
           ...(audio ? { displayName: effectName } : { matchName: effectName }),
@@ -1481,8 +2241,6 @@ export async function runCli(
       "--item-ref",
       "--component-index",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline effect remove requires --confirm");
     const itemRef = required(parsed.options, "--item-ref");
     return output(
       writer,
@@ -1493,7 +2251,7 @@ export async function runCli(
           ? "remove_audio_effect"
           : "remove_video_effect",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           itemRef,
           componentIndex: integerOption(parsed.options, "--component-index"),
@@ -1515,8 +2273,6 @@ export async function runCli(
       "--param-index",
       "--value",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline effect set-param requires --confirm");
     return output(
       writer,
       await call(
@@ -1524,7 +2280,7 @@ export async function runCli(
         port,
         "set_component_param",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           itemRef: required(parsed.options, "--item-ref"),
           componentIndex: integerOption(parsed.options, "--component-index"),
@@ -1554,8 +2310,6 @@ export async function runCli(
       "--value",
       "--interpolation",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline effect set-keyframe requires --confirm");
     const interpolation = parsed.options.get("--interpolation");
     if (interpolation === true)
       throw new Error("--interpolation requires a value");
@@ -1566,7 +2320,7 @@ export async function runCli(
         port,
         "set_component_keyframe",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           itemRef: required(parsed.options, "--item-ref"),
           componentIndex: integerOption(parsed.options, "--component-index"),
@@ -1596,8 +2350,6 @@ export async function runCli(
       "--param-index",
       "--time-seconds",
     ]);
-    if (!parsed.options.has("--confirm"))
-      throw new Error("timeline effect remove-keyframe requires --confirm");
     return output(
       writer,
       await call(
@@ -1605,7 +2357,7 @@ export async function runCli(
         port,
         "remove_component_keyframe",
         {
-          confirm: true,
+          ...(parsed.options.has("--confirm") ? { confirm: true } : {}),
           ...expectations(parsed.options),
           itemRef: required(parsed.options, "--item-ref"),
           componentIndex: integerOption(parsed.options, "--component-index"),

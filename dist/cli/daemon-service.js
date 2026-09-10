@@ -3,7 +3,35 @@ import { closeSync, openSync } from "node:fs";
 import { access, mkdir, readFile, rename, rm, writeFile, } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { resolveApprovalMode } from "./config.js";
 export const DAEMON_SERVICE_LABEL = "com.arcmanagement.gateway-for-premiere";
+function daemonOptions(action, trailing) {
+    if (action === "approval-mode") {
+        if (trailing.length !== 1) {
+            throw new Error("daemon approval-mode requires exactly one of: ask, auto, bypass");
+        }
+        return { confirm: false, approvalMode: resolveApprovalMode(trailing[0]) };
+    }
+    let confirm = false;
+    let approvalMode;
+    for (let index = 0; index < trailing.length; index += 1) {
+        const option = trailing[index];
+        if (option === "--confirm" && action === "uninstall") {
+            confirm = true;
+            continue;
+        }
+        if (option === "--approval-mode" && action === "install") {
+            const value = trailing[index + 1];
+            if (!value)
+                throw new Error("--approval-mode requires a value");
+            approvalMode = resolveApprovalMode(value);
+            index += 1;
+            continue;
+        }
+        throw new Error(`Unknown daemon option: ${option}`);
+    }
+    return { confirm, ...(approvalMode ? { approvalMode } : {}) };
+}
 function xml(value) {
     return value
         .replaceAll("&", "&amp;")
@@ -39,6 +67,8 @@ ${strings.join("\n")}
     <string>${xml(config.pathValue)}</string>
     <key>GATEWAY_FOR_PREMIERE_PORT</key>
     <string>${config.port}</string>
+    <key>GATEWAY_FOR_PREMIERE_APPROVAL_MODE</key>
+    <string>${config.approvalMode}</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -84,6 +114,27 @@ async function installedPort(plistPath) {
     const match = source.match(/<key>GATEWAY_FOR_PREMIERE_PORT<\/key>\s*<string>([^<]+)<\/string>/);
     const port = Number(match ? unxml(match[1]) : "");
     return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
+}
+async function installedApprovalMode(plistPath) {
+    if (!(await exists(plistPath)))
+        return null;
+    const source = await readFile(plistPath, "utf8");
+    const match = source.match(/<key>GATEWAY_FOR_PREMIERE_APPROVAL_MODE<\/key>\s*<string>([^<]+)<\/string>/);
+    return match ? resolveApprovalMode(unxml(match[1])) : "ask";
+}
+async function installedLaunchAgentValue(plistPath, key) {
+    if (!(await exists(plistPath)))
+        return null;
+    const source = await readFile(plistPath, "utf8");
+    if (key === "pathValue") {
+        const match = source.match(/<key>PATH<\/key>\s*<string>([^<]+)<\/string>/);
+        return match ? unxml(match[1]) : null;
+    }
+    const argumentsBlock = source.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/)?.[1];
+    if (!argumentsBlock)
+        return null;
+    const values = [...argumentsBlock.matchAll(/<string>([^<]+)<\/string>/g)].map((match) => unxml(match[1]));
+    return values[key === "nodePath" ? 0 : 1] || null;
 }
 function statusValue(spawn, target) {
     const result = run(spawn, "launchctl", ["print", target], true);
@@ -133,18 +184,12 @@ async function runDarwinDaemonService(port, argv, writer, dependencies = {}) {
         "stop",
         "restart",
         "status",
+        "approval-mode",
         "uninstall",
     ]);
     if (!allowed.has(action))
         throw new Error(`Unknown daemon command: ${action}`);
-    const trailing = argv.slice(1);
-    const confirm = action === "uninstall" && trailing.includes("--confirm");
-    const invalidOption = action === "uninstall"
-        ? trailing.find((value) => value !== "--confirm")
-        : trailing[0];
-    if (invalidOption) {
-        throw new Error(`Unknown daemon option: ${argv.slice(1).join(" ")}`);
-    }
+    const { confirm, approvalMode } = daemonOptions(action, argv.slice(1));
     const spawn = dependencies.spawn || spawnSync;
     const homeDir = dependencies.homeDir || os.homedir();
     const uid = dependencies.uid ?? process.getuid?.();
@@ -166,6 +211,7 @@ async function runDarwinDaemonService(port, argv, writer, dependencies = {}) {
             log: logPath,
             installed,
             port: installed ? await installedPort(plistPath) : null,
+            approvalMode: installed ? await installedApprovalMode(plistPath) : null,
             ...statusValue(spawn, target),
         };
     };
@@ -173,14 +219,28 @@ async function runDarwinDaemonService(port, argv, writer, dependencies = {}) {
         writer(`${JSON.stringify(await serviceStatus(), null, 2)}\n`);
         return;
     }
-    if (action === "install") {
+    if (action === "install" || action === "approval-mode") {
+        if (action === "approval-mode" && !(await exists(plistPath))) {
+            throw new Error("Daemon is not installed; run `gateway-for-premiere daemon install --approval-mode MODE`");
+        }
         await mkdir(launchAgentsDir, { recursive: true });
         await mkdir(logsDir, { recursive: true });
-        const nodePath = dependencies.nodePath || process.execPath;
-        const entrypoint = dependencies.entrypoint || process.argv[1];
+        const nodePath = (action === "approval-mode"
+            ? await installedLaunchAgentValue(plistPath, "nodePath")
+            : null) ||
+            dependencies.nodePath ||
+            process.execPath;
+        const entrypoint = (action === "approval-mode"
+            ? await installedLaunchAgentValue(plistPath, "entrypoint")
+            : null) ||
+            dependencies.entrypoint ||
+            process.argv[1];
         if (!entrypoint)
             throw new Error("Could not determine gateway-for-premiere entrypoint");
-        const pathValue = dependencies.pathValue ||
+        const pathValue = (action === "approval-mode"
+            ? await installedLaunchAgentValue(plistPath, "pathValue")
+            : null) ||
+            dependencies.pathValue ||
             [
                 ...new Set([
                     path.dirname(nodePath),
@@ -198,7 +258,10 @@ async function runDarwinDaemonService(port, argv, writer, dependencies = {}) {
             entrypoint,
             logPath,
             pathValue,
-            port,
+            port: action === "approval-mode"
+                ? (await installedPort(plistPath)) || port
+                : port,
+            approvalMode: approvalMode || resolveApprovalMode(),
         }), { encoding: "utf8", mode: 0o644 });
         run(spawn, "plutil", ["-lint", temporaryPath]);
         await rename(temporaryPath, plistPath);
@@ -277,17 +340,12 @@ async function runWindowsDaemonService(port, argv, writer, dependencies) {
         "stop",
         "restart",
         "status",
+        "approval-mode",
         "uninstall",
     ]);
     if (!allowed.has(action))
         throw new Error(`Unknown daemon command: ${action}`);
-    const trailing = argv.slice(1);
-    const confirm = action === "uninstall" && trailing.includes("--confirm");
-    const invalidOption = action === "uninstall"
-        ? trailing.find((value) => value !== "--confirm")
-        : trailing[0];
-    if (invalidOption)
-        throw new Error(`Unknown daemon option: ${trailing.join(" ")}`);
+    const { confirm, approvalMode } = daemonOptions(action, argv.slice(1));
     const spawn = dependencies.spawn || spawnSync;
     const localAppData = dependencies.localAppData || process.env.LOCALAPPDATA || os.homedir();
     const serviceDir = path.join(localAppData, "Gateway for Premiere");
@@ -321,6 +379,7 @@ async function runWindowsDaemonService(port, argv, writer, dependencies) {
             log: config?.logPath || logPath,
             installed,
             port: config?.port ?? null,
+            approvalMode: config ? config.approvalMode || "ask" : null,
             loaded: pid !== null,
             state: pid !== null ? "running" : installed ? "stopped" : null,
             pid,
@@ -337,6 +396,7 @@ async function runWindowsDaemonService(port, argv, writer, dependencies) {
                     ...process.env,
                     GATEWAY_FOR_PREMIERE_PORT: String(config.port),
                     GATEWAY_FOR_PREMIERE_PID_FILE: config.pidPath,
+                    GATEWAY_FOR_PREMIERE_APPROVAL_MODE: config.approvalMode || "ask",
                 },
             });
             child.unref();
@@ -352,15 +412,18 @@ async function runWindowsDaemonService(port, argv, writer, dependencies) {
     if (action === "uninstall" && !confirm) {
         throw new Error("daemon uninstall requires --confirm");
     }
-    if (action === "install") {
+    if (action === "install" || action === "approval-mode") {
         const previousConfig = await readConfig();
+        if (action === "approval-mode" && (!previousConfig || !taskExists())) {
+            throw new Error("Daemon is not installed; run `gateway-for-premiere daemon install --approval-mode MODE`");
+        }
         const previousPid = await windowsPid(previousConfig?.pidPath || pidPath, processRunning);
         if (previousPid !== null) {
             run(spawn, "taskkill.exe", ["/PID", String(previousPid), "/T", "/F"], true);
             await waitForWindows(previousConfig?.pidPath || pidPath, false, processRunning, delays);
         }
-        const nodePath = dependencies.nodePath || process.execPath;
-        const entrypoint = dependencies.entrypoint || process.argv[1];
+        const nodePath = previousConfig?.nodePath || dependencies.nodePath || process.execPath;
+        const entrypoint = previousConfig?.entrypoint || dependencies.entrypoint || process.argv[1];
         if (!entrypoint)
             throw new Error("Could not determine gateway-for-premiere entrypoint");
         await mkdir(serviceDir, { recursive: true });
@@ -369,13 +432,15 @@ async function runWindowsDaemonService(port, argv, writer, dependencies) {
             entrypoint,
             logPath,
             pidPath,
-            port,
+            port: action === "approval-mode" ? previousConfig?.port || port : port,
+            approvalMode: approvalMode || resolveApprovalMode(),
         };
         await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
         const launcher = [
             "@echo off",
-            `set "GATEWAY_FOR_PREMIERE_PORT=${port}"`,
+            `set "GATEWAY_FOR_PREMIERE_PORT=${config.port}"`,
             `set "GATEWAY_FOR_PREMIERE_PID_FILE=${windowsCommandValue(pidPath)}"`,
+            `set "GATEWAY_FOR_PREMIERE_APPROVAL_MODE=${config.approvalMode}"`,
             `"${windowsCommandValue(nodePath)}" "${windowsCommandValue(entrypoint)}" daemon >> "${windowsCommandValue(logPath)}" 2>&1`,
             "",
         ].join("\r\n");
