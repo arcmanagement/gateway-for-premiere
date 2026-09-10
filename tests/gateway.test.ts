@@ -15,9 +15,17 @@ import test from "node:test";
 import WebSocket from "ws";
 import { finalizeExportFile, GatewayServer } from "../src/server/gateway.js";
 import {
+  AUTO_APPROVED_MUTATION_OPERATIONS,
   DEFAULT_PLUGIN_TIMEOUT_MS,
+  MUTATION_OPERATIONS,
   type PluginRequest,
 } from "../src/shared/protocol.js";
+
+const MUTATION_EXPECTATIONS = {
+  expectedProjectGuid: "project-1",
+  expectedSequenceGuid: "sequence-1",
+  expectedRevision: "revision-1",
+};
 
 async function freePort(): Promise<number> {
   const server = createServer();
@@ -88,7 +96,11 @@ test("health requires the fixed protocol token header", async (context) => {
     headers: { "x-gateway-for-premiere-token": "test-token" },
   });
   assert.equal(authorized.status, 200);
-  assert.deepEqual(await authorized.json(), { ok: true, sessions: [] });
+  assert.deepEqual(await authorized.json(), {
+    ok: true,
+    approvalMode: "ask",
+    sessions: [],
+  });
 });
 
 test("browser origins cannot register a fake Plugin session", async (context) => {
@@ -160,6 +172,111 @@ test("mutations require explicit confirmation before reaching the Plugin", async
   );
 });
 
+test("auto mode bypasses confirmation only for low-risk undoable mutations", async (context) => {
+  const port = await freePort();
+  const gateway = new GatewayServer(port, "test-token", Date.now, "auto");
+  await gateway.start();
+  const socket = await connectPlugin(port, "test-token");
+  context.after(async () => {
+    socket.close();
+    await gateway.close();
+  });
+
+  socket.on("message", (data) => {
+    const message = JSON.parse(data.toString()) as
+      PluginRequest | { type?: string };
+    if (message.type !== "request") return;
+    assert.equal(message.payload.confirm, true);
+    socket.send(
+      JSON.stringify({
+        type: "response",
+        id: message.id,
+        ok: true,
+        result: { moved: true },
+      }),
+    );
+  });
+
+  assert.deepEqual(await gateway.call("update_track", MUTATION_EXPECTATIONS), {
+    moved: true,
+  });
+  await assert.rejects(
+    gateway.call("remove_track_item", {}),
+    /requires confirm: true in auto approval mode/,
+  );
+});
+
+test("auto mode classification is exhaustive and conservative", () => {
+  assert.deepEqual([...AUTO_APPROVED_MUTATION_OPERATIONS].sort(), [
+    "add_sequence_marker",
+    "move_sequence_marker",
+    "update_sequence_marker",
+    "update_track",
+  ]);
+  for (const operation of AUTO_APPROVED_MUTATION_OPERATIONS) {
+    assert.equal(MUTATION_OPERATIONS.has(operation), true, operation);
+  }
+  for (const operation of [
+    "insert_project_item",
+    "remove_track_item",
+    "set_component_param",
+    "set_sequence_settings",
+    "set_clip_interpretation",
+    "export_sequence",
+  ] as const) {
+    assert.equal(AUTO_APPROVED_MUTATION_OPERATIONS.has(operation), false);
+  }
+});
+
+test("bypass mode skips confirmation but keeps the mutation allowlist", async (context) => {
+  const port = await freePort();
+  const gateway = new GatewayServer(port, "test-token", Date.now, "bypass");
+  await gateway.start();
+  const socket = await connectPlugin(port, "test-token");
+  context.after(async () => {
+    socket.close();
+    await gateway.close();
+  });
+
+  socket.on("message", (data) => {
+    const message = JSON.parse(data.toString()) as
+      PluginRequest | { type?: string };
+    if (message.type !== "request") return;
+    assert.equal(message.operation, "remove_track_item");
+    assert.equal(message.payload.confirm, true);
+    socket.send(
+      JSON.stringify({
+        type: "response",
+        id: message.id,
+        ok: true,
+        result: { removed: true },
+      }),
+    );
+  });
+
+  assert.deepEqual(
+    await gateway.call("remove_track_item", MUTATION_EXPECTATIONS),
+    { removed: true },
+  );
+});
+
+test("all mutations require project, sequence, and revision expectations", async () => {
+  const gateway = new GatewayServer(1966, "test-token", Date.now, "bypass");
+  for (const [missing, payload] of [
+    ["expectedProjectGuid", {}],
+    ["expectedSequenceGuid", { expectedProjectGuid: "project-1" }],
+    [
+      "expectedRevision",
+      { expectedProjectGuid: "project-1", expectedSequenceGuid: "sequence-1" },
+    ],
+  ] as const) {
+    await assert.rejects(
+      gateway.call("save_project", payload),
+      new RegExp(`requires ${missing}`),
+    );
+  }
+});
+
 test("one Premiere session serializes concurrent RPC requests", async (context) => {
   const port = await freePort();
   const gateway = new GatewayServer(port, "test-token");
@@ -204,8 +321,14 @@ test("one Premiere session serializes concurrent RPC requests", async (context) 
   });
 
   const [first, second] = await Promise.all([
-    gateway.call("update_track_item", { confirm: true }),
-    gateway.call("update_track_item", { confirm: true }),
+    gateway.call("update_track_item", {
+      confirm: true,
+      ...MUTATION_EXPECTATIONS,
+    }),
+    gateway.call("update_track_item", {
+      confirm: true,
+      ...MUTATION_EXPECTATIONS,
+    }),
   ]);
   assert.deepEqual(first, { request: 1 });
   assert.deepEqual(second, { request: 2 });
@@ -243,8 +366,14 @@ test("a late mutation keeps the wire queue locked and an expired follower is nev
     }, 20);
   });
 
-  const first = gateway.call("update_track_item", { confirm: true });
-  const expired = gateway.call("update_track_item", { confirm: true });
+  const first = gateway.call("update_track_item", {
+    confirm: true,
+    ...MUTATION_EXPECTATIONS,
+  });
+  const expired = gateway.call("update_track_item", {
+    confirm: true,
+    ...MUTATION_EXPECTATIONS,
+  });
   assert.deepEqual(await first, { request: 1 });
   await assert.rejects(expired, /expired in session queue/);
   assert.equal(dispatched, 1);
@@ -285,6 +414,7 @@ test("broker stages exports and finalizes without overwriting", async (context) 
 
   const result = (await gateway.call("export_sequence", {
     confirm: true,
+    ...MUTATION_EXPECTATIONS,
     outputFile,
     presetFile,
   })) as { outputFile?: string };
@@ -298,6 +428,7 @@ test("broker stages exports and finalizes without overwriting", async (context) 
   await assert.rejects(
     gateway.call("export_sequence", {
       confirm: true,
+      ...MUTATION_EXPECTATIONS,
       outputFile,
       presetFile,
     }),
@@ -309,6 +440,7 @@ test("broker stages exports and finalizes without overwriting", async (context) 
   await assert.rejects(
     gateway.call("export_sequence", {
       confirm: true,
+      ...MUTATION_EXPECTATIONS,
       outputFile: path.join(directory, "other.mov"),
       presetFile: presetDirectory,
     }),
@@ -367,7 +499,10 @@ test("Plugin disconnect also rejects queued RPCs without dispatching them", asyn
   });
 
   const inFlight = gateway.call("get_active_project", {});
-  const queued = gateway.call("update_track_item", { confirm: true });
+  const queued = gateway.call("update_track_item", {
+    confirm: true,
+    ...MUTATION_EXPECTATIONS,
+  });
   await assert.rejects(inFlight, /Plugin disconnected/);
   await assert.rejects(queued, /connection is not open/);
   assert.equal(dispatched, 1);

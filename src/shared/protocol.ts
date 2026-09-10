@@ -148,7 +148,14 @@ export type PluginOperation =
   | "get_project_recovery"
   | "get_editing_snapshot"
   | "get_active_sequence"
+  | "list_sequences"
+  | "get_sequence_settings"
   | "get_project_items"
+  | "get_project_item_details"
+  | "find_project_items_by_media_path"
+  | "get_source_monitor"
+  | "query_transcript_languages"
+  | "get_clip_transcript"
   | "get_track_item_components"
   | "get_editing_capabilities"
   | "get_request_journal"
@@ -176,14 +183,48 @@ export type PluginOperation =
   | "set_component_param"
   | "set_component_keyframe"
   | "remove_component_keyframe"
-  | "export_sequence";
+  | "export_sequence"
+  | "create_sequence"
+  | "create_sequence_from_media"
+  | "delete_sequence"
+  | "activate_sequence"
+  | "open_sequence"
+  | "close_sequence"
+  | "clone_sequence"
+  | "create_subsequence"
+  | "set_sequence_bounds"
+  | "set_sequence_playhead"
+  | "set_sequence_settings"
+  | "set_track_muted"
+  | "detect_scene_edits"
+  | "create_bin"
+  | "create_smart_bin"
+  | "update_project_item"
+  | "move_project_item"
+  | "update_clip_media"
+  | "create_subclip"
+  | "set_clip_interpretation"
+  | "set_clip_bounds"
+  | "source_monitor_open_file"
+  | "source_monitor_open_item"
+  | "source_monitor_close"
+  | "source_monitor_set_position"
+  | "source_monitor_play"
+  | "import_clip_transcript";
 
 export const READ_OPERATIONS = new Set<PluginOperation>([
   "get_active_project",
   "get_project_recovery",
   "get_editing_snapshot",
   "get_active_sequence",
+  "list_sequences",
+  "get_sequence_settings",
   "get_project_items",
+  "get_project_item_details",
+  "find_project_items_by_media_path",
+  "get_source_monitor",
+  "query_transcript_languages",
+  "get_clip_transcript",
   "get_track_item_components",
   "get_editing_capabilities",
   "get_request_journal",
@@ -215,6 +256,42 @@ export const MUTATION_OPERATIONS = new Set<PluginOperation>([
   "set_component_keyframe",
   "remove_component_keyframe",
   "export_sequence",
+  "create_sequence",
+  "create_sequence_from_media",
+  "delete_sequence",
+  "activate_sequence",
+  "open_sequence",
+  "close_sequence",
+  "clone_sequence",
+  "create_subsequence",
+  "set_sequence_bounds",
+  "set_sequence_playhead",
+  "set_sequence_settings",
+  "set_track_muted",
+  "detect_scene_edits",
+  "create_bin",
+  "create_smart_bin",
+  "update_project_item",
+  "move_project_item",
+  "update_clip_media",
+  "create_subclip",
+  "set_clip_interpretation",
+  "set_clip_bounds",
+  "source_monitor_open_file",
+  "source_monitor_open_item",
+  "source_monitor_close",
+  "source_monitor_set_position",
+  "source_monitor_play",
+  "import_clip_transcript",
+]);
+
+export type ApprovalMode = "ask" | "auto" | "bypass";
+
+export const AUTO_APPROVED_MUTATION_OPERATIONS = new Set<PluginOperation>([
+  "update_track",
+  "add_sequence_marker",
+  "update_sequence_marker",
+  "move_sequence_marker",
 ]);
 
 export interface PluginHello {

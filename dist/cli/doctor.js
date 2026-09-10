@@ -45,7 +45,16 @@ export function buildDoctorReport(input) {
         input.daemon.loaded === true &&
         input.daemon.state === "running" &&
         daemonPort === input.port;
-    const persistentBroker = persistentBrokerConfigured && brokerReachable;
+    const daemonApprovalMode = typeof input.daemon.approvalMode === "string"
+        ? input.daemon.approvalMode
+        : null;
+    const brokerApprovalMode = typeof input.health?.approvalMode === "string"
+        ? input.health.approvalMode
+        : null;
+    const approvalModesMatch = daemonApprovalMode !== null &&
+        brokerApprovalMode !== null &&
+        daemonApprovalMode === brokerApprovalMode;
+    const persistentBroker = persistentBrokerConfigured && brokerReachable && approvalModesMatch;
     const nextActions = [];
     if (input.daemon.installed !== true)
         nextActions.push("gateway-for-premiere daemon install");
@@ -70,10 +79,12 @@ export function buildDoctorReport(input) {
             pid: typeof input.daemon.pid === "number" ? input.daemon.pid : null,
             port: daemonPort,
             portMatches: daemonPort === input.port,
+            approvalMode: daemonApprovalMode,
         },
         broker: {
             reachable: brokerReachable,
             tokenAccepted: brokerReachable,
+            approvalMode: brokerApprovalMode,
             ...(input.brokerError ? { error: input.brokerError } : {}),
         },
         sessions: sessionChecks,
@@ -82,6 +93,7 @@ export function buildDoctorReport(input) {
             editableSession,
             persistentBrokerConfigured,
             persistentBroker,
+            approvalModesMatch,
             coldStartPlugin: liveSession
                 ? "live Plugin session connected; cold-start provenance requires restart observation"
                 : "install the CCX, restart Premiere, and wait for the Plugin session",

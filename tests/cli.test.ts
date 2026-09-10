@@ -62,6 +62,10 @@ test("mutation network failures retain the request ID for reconciliation", async
         "save",
         "--expect-project",
         "project-1",
+        "--expect-sequence",
+        "sequence-1",
+        "--expect-revision",
+        "revision-1",
         "--request-id",
         "request-network-failure-1",
         "--confirm",
@@ -267,6 +271,7 @@ test("doctor refreshes current project metadata before reporting readiness", asy
     editableSession: true,
     persistentBrokerConfigured: false,
     persistentBroker: false,
+    approvalModesMatch: false,
     coldStartPlugin:
       "live Plugin session connected; cold-start provenance requires restart observation",
   });
@@ -922,6 +927,10 @@ test("CLI saves then creates an exclusive project backup", async (context) => {
       output,
       "--expect-project",
       "project-1",
+      "--expect-sequence",
+      "sequence-1",
+      "--expect-revision",
+      "revision-1",
       "--request-id",
       "request-backup-1",
       "--confirm",
@@ -938,6 +947,8 @@ test("CLI saves then creates an exclusive project backup", async (context) => {
       arguments: {
         confirm: true,
         expectedProjectGuid: "project-1",
+        expectedSequenceGuid: "sequence-1",
+        expectedRevision: "revision-1",
       },
       requestId: "request-backup-1",
     },
@@ -996,12 +1007,196 @@ test("CLI maps media import and project item removal", async (context) => {
   );
 });
 
-test("CLI rejects a mutation without confirmation before network access", async (context) => {
+test("CLI maps sequence management and settings operations", async (context) => {
+  useFixedProtocolToken(context);
+  const requests: Array<Record<string, unknown>> = [];
+  const fakeFetch = (async (_input, init) => {
+    requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    return new Response(JSON.stringify({ ok: true, result: {} }), {
+      status: 200,
+    });
+  }) as typeof fetch;
+  const expected = [
+    "--expect-project",
+    "project-1",
+    "--expect-sequence",
+    "sequence-1",
+    "--expect-revision",
+    "revision-1",
+  ];
+
+  await runCli(["sequence", "list"], () => undefined, { fetch: fakeFetch });
+  await runCli(["sequence", "settings"], () => undefined, {
+    fetch: fakeFetch,
+  });
+  await runCli(
+    [
+      "sequence",
+      "activate",
+      "--sequence-guid",
+      "sequence-2",
+      "--expect-target-revision",
+      "target-revision-2",
+      ...expected,
+      "--confirm",
+    ],
+    () => undefined,
+    { fetch: fakeFetch },
+  );
+  await runCli(
+    [
+      "sequence",
+      "create",
+      "--name",
+      "Assembly",
+      "--expect-items-revision",
+      "items-1",
+      ...expected,
+      "--confirm",
+    ],
+    () => undefined,
+    { fetch: fakeFetch },
+  );
+  await runCli(
+    [
+      "sequence",
+      "settings",
+      "update",
+      "--value",
+      '{"maximumRenderQuality":true}',
+      ...expected,
+    ],
+    () => undefined,
+    { fetch: fakeFetch },
+  );
+  await runCli(
+    [
+      "timeline",
+      "track",
+      "mute",
+      "--media-type",
+      "audio",
+      "--track",
+      "1",
+      "--muted",
+      "true",
+      ...expected,
+    ],
+    () => undefined,
+    { fetch: fakeFetch },
+  );
+
+  assert.deepEqual(
+    requests.map((request) => request.operation),
+    [
+      "list_sequences",
+      "get_sequence_settings",
+      "activate_sequence",
+      "create_sequence",
+      "set_sequence_settings",
+      "set_track_muted",
+    ],
+  );
+  assert.deepEqual(requests[2]?.arguments, {
+    confirm: true,
+    expectedProjectGuid: "project-1",
+    expectedSequenceGuid: "sequence-1",
+    expectedRevision: "revision-1",
+    sequenceGuid: "sequence-2",
+    expectedTargetSequenceRevision: "target-revision-2",
+  });
+  assert.deepEqual(requests[3]?.arguments, {
+    confirm: true,
+    expectedProjectGuid: "project-1",
+    expectedSequenceGuid: "sequence-1",
+    expectedRevision: "revision-1",
+    name: "Assembly",
+    expectedProjectItemsRevision: "items-1",
+  });
+  assert.deepEqual(requests[4]?.arguments, {
+    expectedProjectGuid: "project-1",
+    expectedSequenceGuid: "sequence-1",
+    expectedRevision: "revision-1",
+    settings: { maximumRenderQuality: true },
+  });
+});
+
+test("CLI maps project-item and media operations", async (context) => {
+  useFixedProtocolToken(context);
+  const requests: Array<Record<string, unknown>> = [];
+  const fakeFetch = (async (_input, init) => {
+    requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    return new Response(JSON.stringify({ ok: true, result: {} }), {
+      status: 200,
+    });
+  }) as typeof fetch;
+  const expected = [
+    "--expect-project",
+    "project-1",
+    "--expect-sequence",
+    "sequence-1",
+    "--expect-revision",
+    "revision-1",
+    "--expect-items-revision",
+    "items-1",
+  ];
+
+  await runCli(
+    ["project", "item", "details", "--item-id", "clip-1"],
+    () => undefined,
+    { fetch: fakeFetch },
+  );
+  await runCli(
+    ["project", "bin", "create", "--name", "Selects", ...expected],
+    () => undefined,
+    { fetch: fakeFetch },
+  );
+  await runCli(
+    [
+      "project",
+      "clip",
+      "interpretation",
+      "--item-id",
+      "clip-1",
+      "--value",
+      '{"frameRate":23.976}',
+      ...expected,
+      "--confirm",
+    ],
+    () => undefined,
+    { fetch: fakeFetch },
+  );
+
+  assert.deepEqual(
+    requests.map((request) => request.operation),
+    ["get_project_item_details", "create_bin", "set_clip_interpretation"],
+  );
+  assert.deepEqual(requests[1]?.arguments, {
+    expectedProjectGuid: "project-1",
+    expectedSequenceGuid: "sequence-1",
+    expectedRevision: "revision-1",
+    name: "Selects",
+    expectedProjectItemsRevision: "items-1",
+    makeUnique: true,
+  });
+});
+
+test("CLI lets the broker apply its configured approval mode", async (context) => {
   useFixedProtocolToken(context);
   let called = false;
-  const fakeFetch = (async () => {
+  const fakeFetch = (async (_input, init) => {
     called = true;
-    return new Response();
+    const request = JSON.parse(String(init?.body)) as {
+      arguments: Record<string, unknown>;
+    };
+    assert.equal(request.arguments.confirm, undefined);
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error: "trim_track_item requires confirm: true in ask approval mode",
+      }),
+      { status: 400 },
+    );
   }) as typeof fetch;
   await assert.rejects(
     runCli(
@@ -1022,9 +1217,9 @@ test("CLI rejects a mutation without confirmation before network access", async 
       () => undefined,
       { fetch: fakeFetch },
     ),
-    /requires --confirm/,
+    /requires confirm: true in ask approval mode/,
   );
-  assert.equal(called, false);
+  assert.equal(called, true);
 });
 
 test("CLI rejects unknown and duplicate options", async () => {
@@ -1165,7 +1360,7 @@ test("managed daemon persists only port and paths", async (context) => {
   }) as unknown as typeof spawnSync;
   let text = "";
   await runCli(
-    ["--port", "2196", "daemon", "install"],
+    ["--port", "2196", "daemon", "install", "--approval-mode", "bypass"],
     (value) => {
       text += value;
     },
@@ -1185,6 +1380,7 @@ test("managed daemon persists only port and paths", async (context) => {
   assert.equal(result.installed, true);
   assert.equal(result.loaded, true);
   assert.equal(result.port, 2196);
+  assert.equal(result.approvalMode, "bypass");
   assert.equal(result.service, DAEMON_SERVICE_LABEL);
   const plist = await readFile(
     path.join(
@@ -1197,12 +1393,54 @@ test("managed daemon persists only port and paths", async (context) => {
   );
   assert.match(plist, /GATEWAY_FOR_PREMIERE_PORT/);
   assert.match(plist, /<string>2196<\/string>/);
+  assert.match(plist, /GATEWAY_FOR_PREMIERE_APPROVAL_MODE/);
+  assert.match(plist, /<string>bypass<\/string>/);
   assert.doesNotMatch(plist, /GATEWAY_FOR_PREMIERE_SECRET/);
   assert.ok(calls.some((call) => call.command === "plutil"));
   assert.ok(
     calls.some(
       (call) => call.command === "launchctl" && call.args[0] === "kickstart",
     ),
+  );
+
+  text = "";
+  await runCli(
+    ["daemon", "approval-mode", "auto"],
+    (value) => {
+      text += value;
+    },
+    {
+      daemonService: {
+        spawn: fakeSpawn,
+        homeDir,
+        uid: 501,
+        platform: "darwin",
+        nodePath: "/opt/node/bin/node",
+        entrypoint: "/opt/gateway-for-premiere/dist/cli/index.js",
+        pathValue: "/opt/node/bin:/usr/bin:/bin",
+      },
+    },
+  );
+  const changedMode = JSON.parse(text) as Record<string, unknown>;
+  assert.equal(changedMode.approvalMode, "auto");
+  assert.equal(changedMode.port, 2196);
+  const changedPlist = await readFile(
+    path.join(
+      homeDir,
+      "Library",
+      "LaunchAgents",
+      `${DAEMON_SERVICE_LABEL}.plist`,
+    ),
+    "utf8",
+  );
+  assert.match(changedPlist, /<string>\/opt\/node\/bin\/node<\/string>/);
+  assert.match(
+    changedPlist,
+    /<string>\/opt\/gateway-for-premiere\/dist\/cli\/index.js<\/string>/,
+  );
+  assert.match(
+    changedPlist,
+    /<string>\/opt\/node\/bin:\/usr\/bin:\/bin<\/string>/,
   );
 
   text = "";
@@ -1222,6 +1460,37 @@ test("managed daemon persists only port and paths", async (context) => {
   );
   const statusFromDifferentCaller = JSON.parse(text) as Record<string, unknown>;
   assert.equal(statusFromDifferentCaller.port, 2196);
+
+  await writeFile(
+    path.join(
+      homeDir,
+      "Library",
+      "LaunchAgents",
+      `${DAEMON_SERVICE_LABEL}.plist`,
+    ),
+    changedPlist.replace(
+      /\s*<key>GATEWAY_FOR_PREMIERE_APPROVAL_MODE<\/key>\s*<string>[^<]+<\/string>/,
+      "",
+    ),
+    "utf8",
+  );
+  text = "";
+  await runCli(
+    ["daemon", "status"],
+    (value) => {
+      text += value;
+    },
+    {
+      daemonService: {
+        spawn: fakeSpawn,
+        homeDir,
+        uid: 501,
+        platform: "darwin",
+      },
+    },
+  );
+  const legacyStatus = JSON.parse(text) as Record<string, unknown>;
+  assert.equal(legacyStatus.approvalMode, "ask");
 });
 
 test("Windows managed daemon uses a per-user scheduled task and PID file", async (context) => {
@@ -1256,7 +1525,7 @@ test("Windows managed daemon uses a per-user scheduled task and PID file", async
 
   let text = "";
   await runCli(
-    ["--port", "2196", "daemon", "install"],
+    ["--port", "2196", "daemon", "install", "--approval-mode", "auto"],
     (value) => {
       text += value;
     },
@@ -1277,10 +1546,12 @@ test("Windows managed daemon uses a per-user scheduled task and PID file", async
   assert.equal(installed.installed, true);
   assert.equal(installed.loaded, true);
   assert.equal(installed.port, 2196);
+  assert.equal(installed.approvalMode, "auto");
   assert.equal(installed.service, WINDOWS_DAEMON_TASK);
   const launcher = await readFile(path.join(serviceDir, "daemon.cmd"), "utf8");
   assert.match(launcher, /GATEWAY_FOR_PREMIERE_PORT=2196/);
   assert.match(launcher, /GATEWAY_FOR_PREMIERE_PID_FILE/);
+  assert.match(launcher, /GATEWAY_FOR_PREMIERE_APPROVAL_MODE=auto/);
   assert.doesNotMatch(launcher, /SECRET/);
   assert.ok(
     calls.some(
@@ -1290,6 +1561,33 @@ test("Windows managed daemon uses a per-user scheduled task and PID file", async
         call.args.includes("ONLOGON"),
     ),
   );
+
+  text = "";
+  await runCli(
+    ["daemon", "approval-mode", "bypass"],
+    (value) => {
+      text += value;
+    },
+    {
+      daemonService: {
+        spawn: fakeSpawn,
+        platform: "win32",
+        localAppData,
+        processRunning: (pid) => pid === 1234 && running,
+        spawnDetached: fakeSpawnDetached,
+        waitDelays: [0],
+      },
+    },
+  );
+  const changedMode = JSON.parse(text) as Record<string, unknown>;
+  assert.equal(changedMode.approvalMode, "bypass");
+  assert.equal(changedMode.port, 2196);
+  const changedLauncher = await readFile(
+    path.join(serviceDir, "daemon.cmd"),
+    "utf8",
+  );
+  assert.match(changedLauncher, /GATEWAY_FOR_PREMIERE_PORT=2196/);
+  assert.match(changedLauncher, /GATEWAY_FOR_PREMIERE_APPROVAL_MODE=bypass/);
 
   text = "";
   await runCli(

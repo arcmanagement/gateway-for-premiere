@@ -17,11 +17,13 @@ import {
 import path from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import {
+  AUTO_APPROVED_MUTATION_OPERATIONS,
   DEFAULT_PLUGIN_TIMEOUT_MS,
   EXPORT_PLUGIN_TIMEOUT_MS,
   MUTATION_OPERATIONS,
   READ_OPERATIONS,
   type ConnectedSession,
+  type ApprovalMode,
   type PluginConnected,
   type PluginHello,
   type PluginOperation,
@@ -133,6 +135,7 @@ export class GatewayServer {
     readonly port: number,
     readonly protocolToken: string,
     private readonly now: () => number = Date.now,
+    readonly approvalMode: ApprovalMode = "ask",
   ) {
     if (!protocolToken) throw new Error("Gateway protocol token is required");
   }
@@ -154,7 +157,11 @@ export class GatewayServer {
           return;
         }
         if (request.method === "GET" && request.url === "/health") {
-          writeJson(response, 200, { ok: true, sessions: this.listSessions() });
+          writeJson(response, 200, {
+            ok: true,
+            approvalMode: this.approvalMode,
+            sessions: this.listSessions(),
+          });
           return;
         }
         if (request.method === "POST" && request.url === "/rpc") {
@@ -239,8 +246,28 @@ export class GatewayServer {
     requestedSessionId?: string,
     requestedRequestId?: string,
   ): Promise<unknown> {
-    if (MUTATION_OPERATIONS.has(operation) && payload.confirm !== true) {
-      throw new Error(`${operation} requires confirm: true`);
+    let effectivePayload = payload;
+    if (MUTATION_OPERATIONS.has(operation)) {
+      const approved =
+        payload.confirm === true ||
+        this.approvalMode === "bypass" ||
+        (this.approvalMode === "auto" &&
+          AUTO_APPROVED_MUTATION_OPERATIONS.has(operation));
+      if (!approved) {
+        throw new Error(
+          `${operation} requires confirm: true in ${this.approvalMode} approval mode`,
+        );
+      }
+      for (const field of [
+        "expectedProjectGuid",
+        "expectedSequenceGuid",
+        "expectedRevision",
+      ]) {
+        if (typeof payload[field] !== "string" || !payload[field]) {
+          throw new Error(`${operation} requires ${field}`);
+        }
+      }
+      effectivePayload = { ...payload, confirm: true };
     }
     const connection = this.selectConnection(requestedSessionId);
     const operationRequestId = requestId(requestedRequestId);
@@ -258,14 +285,14 @@ export class GatewayServer {
       return operation === "export_sequence"
         ? this.exportSequenceSafely(
             connection,
-            payload,
+            effectivePayload,
             deadline,
             operationRequestId,
           )
         : this.dispatch(
             connection,
             operation,
-            payload,
+            effectivePayload,
             MUTATION_OPERATIONS.has(operation) ? undefined : remainingMs,
             deadline,
             operationRequestId,

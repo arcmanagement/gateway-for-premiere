@@ -11,9 +11,11 @@ test("doctor separates a live development session from persistent readiness", ()
       state: null,
       pid: null,
       port: null,
+      approvalMode: "auto",
     },
     health: {
       ok: true,
+      approvalMode: "auto",
       sessions: [
         {
           sessionId: "session-1",
@@ -50,10 +52,21 @@ test("doctor separates a live development session from persistent readiness", ()
     editableSession: true,
     persistentBrokerConfigured: false,
     persistentBroker: false,
+    approvalModesMatch: true,
     coldStartPlugin:
       "live Plugin session connected; cold-start provenance requires restart observation",
   });
   assert.deepEqual(report.nextActions, ["gateway-for-premiere daemon install"]);
+  assert.equal(
+    (report as unknown as { daemon: { approvalMode: string } }).daemon
+      .approvalMode,
+    "auto",
+  );
+  assert.equal(
+    (report as unknown as { broker: { approvalMode: string } }).broker
+      .approvalMode,
+    "auto",
+  );
 });
 
 test("doctor reports a persistently configured broker separately from CCX cold start", () => {
@@ -65,9 +78,11 @@ test("doctor reports a persistently configured broker separately from CCX cold s
       state: "running",
       pid: 123,
       port: 1966,
+      approvalMode: "ask",
     },
     health: {
       ok: true,
+      approvalMode: "ask",
       sessions: [
         {
           sessionId: "session-1",
@@ -93,6 +108,28 @@ test("doctor reports a persistently configured broker separately from CCX cold s
   assert.deepEqual(report.nextActions, [
     "Open a compatible Premiere project and active sequence",
   ]);
+});
+
+test("doctor requires the configured and live approval modes to match", () => {
+  const report = buildDoctorReport({
+    port: 1966,
+    daemon: {
+      installed: true,
+      loaded: true,
+      state: "running",
+      pid: 123,
+      port: 1966,
+      approvalMode: "bypass",
+    },
+    health: { ok: true, approvalMode: "ask", sessions: [] },
+  }) as {
+    readiness: { persistentBroker: boolean; approvalModesMatch: boolean };
+    nextActions: string[];
+  };
+
+  assert.equal(report.readiness.approvalModesMatch, false);
+  assert.equal(report.readiness.persistentBroker, false);
+  assert.equal(report.nextActions[0], "gateway-for-premiere daemon restart");
 });
 
 test("doctor requests a daemon restart when the configured broker is unreachable", () => {
@@ -135,9 +172,11 @@ test("doctor does not accept unsupported Premiere or an unready journal", () => 
       state: "running",
       pid: 123,
       port: 1966,
+      approvalMode: "ask",
     },
     health: {
       ok: true,
+      approvalMode: "ask",
       sessions: [
         {
           sessionId: "session-old",
