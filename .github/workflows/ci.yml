@@ -45,3 +45,11 @@ jobs:
       - run: choco install innosetup --yes --no-progress
       - run: npm run build:installer:windows
       - run: npm run verify:installer:windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            release/Gateway-for-Premiere-*-Windows.exe
+            release/Gateway-for-Premiere-*-Windows.exe.sha256
+          if-no-files-found: error
+          retention-days: 7

@@ -114,7 +114,7 @@ brew upgrade gateway-for-premiere
 Alternatively, install Node.js 22 or later and the immutable package attached to the release tag:
 
 ```bash
-npm install --global https://github.com/arcmanagement/gateway-for-premiere/releases/download/v0.1.4/arcmanagement-gateway-for-premiere-0.1.4.tgz
+npm install --global https://github.com/arcmanagement/gateway-for-premiere/releases/download/v0.1.5/arcmanagement-gateway-for-premiere-0.1.5.tgz
 gateway-for-premiere daemon install
 gateway-for-premiere doctor
 ```
