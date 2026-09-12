@@ -1,16 +1,28 @@
 #!/bin/sh
-set -eu
+set -u
+
+# The macOS Installer replaces any failure here with a generic "The installation
+# failed" dialog, so this script never aborts. It moves a command that another
+# installation owns out of the way and records what it did in the install log.
 
 PACKAGE_ID="com.arcmanagement.gateway-for-premiere"
 COMMAND_PATH="/usr/local/bin/gateway-for-premiere"
 HOMEBREW_COMMAND_PATH="/opt/homebrew/bin/gateway-for-premiere"
 
-if [ -e "$COMMAND_PATH" ] || [ -L "$COMMAND_PATH" ] || [ -e "$HOMEBREW_COMMAND_PATH" ]; then
+if [ -e "$COMMAND_PATH" ] || [ -L "$COMMAND_PATH" ]; then
   if ! /usr/sbin/pkgutil --pkg-info "$PACKAGE_ID" >/dev/null 2>&1; then
-    echo "Gateway for Premiere is already managed outside this installer." >&2
-    echo "Remove the Homebrew or npm installation before installing this package." >&2
-    exit 1
+    BACKUP_PATH="$COMMAND_PATH.before-pkg-$(/bin/date +%Y%m%d%H%M%S)"
+    if /bin/mv "$COMMAND_PATH" "$BACKUP_PATH" 2>/dev/null; then
+      echo "Moved an npm or manual gateway-for-premiere command to $BACKUP_PATH" >&2
+    else
+      echo "Could not move the existing command at $COMMAND_PATH; the package will replace it." >&2
+    fi
   fi
+fi
+
+if [ -e "$HOMEBREW_COMMAND_PATH" ] || [ -L "$HOMEBREW_COMMAND_PATH" ]; then
+  echo "A Homebrew gateway-for-premiere remains at $HOMEBREW_COMMAND_PATH and takes PATH precedence." >&2
+  echo "Run 'brew uninstall gateway-for-premiere' to use the package installation instead." >&2
 fi
 
 exit 0

@@ -212,3 +212,44 @@ test("doctor does not accept unsupported Premiere or an unready journal", () => 
   );
   assert.match(report.nextActions[0] || "", /compatible Premiere project/);
 });
+
+test("doctor keeps a running broker healthy when sign-in autostart is missing", () => {
+  const report = buildDoctorReport({
+    port: 1966,
+    daemon: {
+      installed: true,
+      autostart: null,
+      autostartRegistered: false,
+      loaded: true,
+      state: "running",
+      pid: 123,
+      port: 1966,
+      approvalMode: "ask",
+    },
+    health: {
+      ok: true,
+      approvalMode: "ask",
+      sessions: [
+        {
+          sessionId: "session-1",
+          premiereVersion: "27.0.0",
+          journalStatus: "ready",
+          projectGuid: "project-1",
+          sequenceGuid: "sequence-1",
+        },
+      ],
+    },
+  }) as {
+    ok: boolean;
+    daemon: { autostart: string | null; autostartRegistered: boolean | null };
+    readiness: { persistentBroker: boolean };
+    nextActions: string[];
+  };
+
+  assert.equal(report.ok, true);
+  assert.equal(report.readiness.persistentBroker, true);
+  assert.equal(report.daemon.autostart, null);
+  assert.equal(report.daemon.autostartRegistered, false);
+  assert.equal(report.nextActions.length, 1);
+  assert.match(report.nextActions[0]!, /autostart is not registered/);
+});

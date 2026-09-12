@@ -45,6 +45,10 @@ export function buildDoctorReport(input) {
         input.daemon.loaded === true &&
         input.daemon.state === "running" &&
         daemonPort === input.port;
+    const daemonAutostart = typeof input.daemon.autostart === "string" ? input.daemon.autostart : null;
+    const daemonAutostartRegistered = typeof input.daemon.autostartRegistered === "boolean"
+        ? input.daemon.autostartRegistered
+        : null;
     const daemonApprovalMode = typeof input.daemon.approvalMode === "string"
         ? input.daemon.approvalMode
         : null;
@@ -60,6 +64,8 @@ export function buildDoctorReport(input) {
         nextActions.push("gateway-for-premiere daemon install");
     else if (!persistentBroker)
         nextActions.push("gateway-for-premiere daemon restart");
+    if (input.daemon.installed === true && daemonAutostartRegistered === false)
+        nextActions.push("Sign-in autostart is not registered; run `gateway-for-premiere daemon start` after each sign-in or re-run `gateway-for-premiere daemon install`");
     if (!liveSession)
         nextActions.push("Open a compatible Premiere project and connect the Gateway for Premiere Plugin");
     else if (!editableSession)
@@ -77,6 +83,8 @@ export function buildDoctorReport(input) {
             loaded: input.daemon.loaded === true,
             state: typeof input.daemon.state === "string" ? input.daemon.state : null,
             pid: typeof input.daemon.pid === "number" ? input.daemon.pid : null,
+            autostart: daemonAutostart,
+            autostartRegistered: daemonAutostartRegistered,
             port: daemonPort,
             portMatches: daemonPort === input.port,
             approvalMode: daemonApprovalMode,
