@@ -210,6 +210,8 @@ async function runDarwinDaemonService(port, argv, writer, dependencies = {}) {
             plist: plistPath,
             log: logPath,
             installed,
+            autostart: installed ? "launch-agent" : null,
+            autostartRegistered: installed,
             port: installed ? await installedPort(plistPath) : null,
             approvalMode: installed ? await installedApprovalMode(plistPath) : null,
             ...statusValue(spawn, target),
@@ -298,6 +300,36 @@ async function runDarwinDaemonService(port, argv, writer, dependencies = {}) {
     writer(`${JSON.stringify(await serviceStatus(), null, 2)}\n`);
 }
 export const WINDOWS_DAEMON_TASK = "ArcManagement Gateway for Premiere";
+export const WINDOWS_RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+export const WINDOWS_RUN_VALUE = WINDOWS_DAEMON_TASK;
+function windowsVbsValue(value) {
+    return value.replaceAll('"', '""');
+}
+function buildWindowsHiddenLauncher(launcherPath) {
+    return [
+        "' Starts the Gateway for Premiere broker without a console window.",
+        'Set shell = CreateObject("WScript.Shell")',
+        `shell.Run """${windowsVbsValue(launcherPath)}""", 0, False`,
+        "",
+    ].join("\r\n");
+}
+function failureDetail(result) {
+    const detail = resultText(result.stderr) ||
+        resultText(result.stdout) ||
+        result.error?.message ||
+        "";
+    // Windows console tools answer in the OS code page, which Node decodes as
+    // UTF-8 and turns into unreadable text on a localized machine. Report such a
+    // message by its exit code rather than printing the mangled bytes.
+    const readable = detail.replaceAll(/\s+/g, " ").trim();
+    const exitCode = typeof result.status === "number"
+        ? `exit code ${result.status}`
+        : "unknown error";
+    if (!readable)
+        return exitCode;
+    // eslint-disable-next-line no-control-regex
+    return /[^\x09\x0a\x0d\x20-\x7e]/.test(readable) ? exitCode : readable;
+}
 function windowsCommandValue(value) {
     return value.replaceAll("%", "%%");
 }
@@ -351,6 +383,14 @@ async function runWindowsDaemonService(port, argv, writer, dependencies) {
     const serviceDir = path.join(localAppData, "Gateway for Premiere");
     const configPath = path.join(serviceDir, "daemon.json");
     const launcherPath = path.join(serviceDir, "daemon.cmd");
+    const hiddenLauncherPath = path.join(serviceDir, "daemon.vbs");
+    const userName = dependencies.windowsUser || process.env.USERNAME || "";
+    const userDomain = dependencies.windowsUserDomain || process.env.USERDOMAIN || "";
+    const windowsUser = userName
+        ? userDomain
+            ? `${userDomain}\\${userName}`
+            : userName
+        : "";
     const logPath = path.join(serviceDir, "gateway-for-premiere.log");
     const pidPath = path.join(serviceDir, "gateway-for-premiere.pid");
     const delays = dependencies.waitDelays || [0, 100, 250, 500, 1_000, 2_000];
@@ -368,21 +408,40 @@ async function runWindowsDaemonService(port, argv, writer, dependencies) {
         const result = run(spawn, "schtasks.exe", ["/Query", "/TN", WINDOWS_DAEMON_TASK], true);
         return !result.error && result.status === 0;
     };
-    const serviceStatus = async () => {
+    const runEntryExists = () => {
+        const result = run(spawn, "reg.exe", ["query", WINDOWS_RUN_KEY, "/v", WINDOWS_RUN_VALUE], true);
+        return !result.error && result.status === 0;
+    };
+    const autostartMethod = () => {
+        if (taskExists())
+            return "scheduled-task";
+        if (runEntryExists())
+            return "startup-registry";
+        return null;
+    };
+    const serviceStatus = async (warnings = [], registered) => {
         const config = await readConfig();
         const pid = await windowsPid(config?.pidPath || pidPath, processRunning);
-        const installed = config !== null && taskExists();
+        const installed = config !== null;
+        const autostart = registered !== undefined
+            ? registered
+            : installed
+                ? autostartMethod()
+                : null;
         return {
             ok: true,
             service: WINDOWS_DAEMON_TASK,
             config: configPath,
             log: config?.logPath || logPath,
             installed,
+            autostart,
+            autostartRegistered: autostart !== null,
             port: config?.port ?? null,
             approvalMode: config ? config.approvalMode || "ask" : null,
             loaded: pid !== null,
             state: pid !== null ? "running" : installed ? "stopped" : null,
             pid,
+            ...(warnings.length > 0 ? { warnings } : {}),
         };
     };
     const startDetached = (config) => {
@@ -414,7 +473,7 @@ async function runWindowsDaemonService(port, argv, writer, dependencies) {
     }
     if (action === "install" || action === "approval-mode") {
         const previousConfig = await readConfig();
-        if (action === "approval-mode" && (!previousConfig || !taskExists())) {
+        if (action === "approval-mode" && !previousConfig) {
             throw new Error("Daemon is not installed; run `gateway-for-premiere daemon install --approval-mode MODE`");
         }
         const previousPid = await windowsPid(previousConfig?.pidPath || pidPath, processRunning);
@@ -445,23 +504,90 @@ async function runWindowsDaemonService(port, argv, writer, dependencies) {
             "",
         ].join("\r\n");
         await writeFile(launcherPath, launcher, "utf8");
-        run(spawn, "schtasks.exe", [
+        await writeFile(hiddenLauncherPath, buildWindowsHiddenLauncher(launcherPath), "utf8");
+        // Sign-in autostart must work on an account without administrator rights.
+        // Task Scheduler is tried first as the account's own interactive task, then
+        // as a plain task, then the per-user Run key. Installation still succeeds
+        // when every one of them is refused.
+        const warnings = [];
+        const trigger = `cmd.exe /d /s /c ""${launcherPath}""`;
+        const taskAttempts = [];
+        if (windowsUser) {
+            taskAttempts.push([
+                "/Create",
+                "/TN",
+                WINDOWS_DAEMON_TASK,
+                "/SC",
+                "ONLOGON",
+                "/TR",
+                trigger,
+                "/RU",
+                windowsUser,
+                "/IT",
+                "/RL",
+                "LIMITED",
+                "/F",
+            ]);
+        }
+        taskAttempts.push([
             "/Create",
             "/TN",
             WINDOWS_DAEMON_TASK,
             "/SC",
             "ONLOGON",
             "/TR",
-            `cmd.exe /d /s /c ""${launcherPath}""`,
+            trigger,
             "/F",
         ]);
+        let taskRegistered = false;
+        let lastTaskFailure = "";
+        for (const attempt of taskAttempts) {
+            const result = run(spawn, "schtasks.exe", attempt, true);
+            if (!result.error && result.status === 0) {
+                taskRegistered = true;
+                break;
+            }
+            lastTaskFailure = failureDetail(result);
+        }
+        let registered = null;
+        if (taskRegistered) {
+            registered = "scheduled-task";
+            if (runEntryExists()) {
+                run(spawn, "reg.exe", ["delete", WINDOWS_RUN_KEY, "/v", WINDOWS_RUN_VALUE, "/f"], true);
+            }
+        }
+        else {
+            warnings.push(`Could not register the sign-in scheduled task: ${lastTaskFailure}`);
+            if (taskExists()) {
+                warnings.push(`A scheduled task named "${WINDOWS_DAEMON_TASK}" already exists and could not be updated. It may still start an earlier installation at sign-in.`);
+            }
+            const registryResult = run(spawn, "reg.exe", [
+                "add",
+                WINDOWS_RUN_KEY,
+                "/v",
+                WINDOWS_RUN_VALUE,
+                "/t",
+                "REG_SZ",
+                "/d",
+                `wscript.exe "${hiddenLauncherPath}"`,
+                "/f",
+            ], true);
+            if (registryResult.error || registryResult.status !== 0) {
+                warnings.push(`Could not register the sign-in Run entry: ${failureDetail(registryResult)}`);
+                warnings.push("The broker is running now, but it will not start again automatically. Run `gateway-for-premiere daemon start` after each sign-in.");
+            }
+            else {
+                registered = "startup-registry";
+                warnings.push(`Registered sign-in autostart under ${WINDOWS_RUN_KEY} instead.`);
+            }
+        }
         startDetached(config);
         await waitForWindows(pidPath, true, processRunning, delays);
-        writer(`${JSON.stringify(await serviceStatus(), null, 2)}\n`);
+        writer(`${JSON.stringify(await serviceStatus(warnings, registered), null, 2)}\n`);
         return;
     }
     const config = await readConfig();
-    if (!config || !taskExists()) {
+    if (!config) {
         throw new Error("Daemon is not installed; run `gateway-for-premiere daemon install`");
     }
     if (action === "stop" || action === "restart" || action === "uninstall") {
@@ -473,9 +599,21 @@ async function runWindowsDaemonService(port, argv, writer, dependencies) {
         await waitForWindows(config.pidPath, false, processRunning, delays);
     }
     if (action === "uninstall") {
-        run(spawn, "schtasks.exe", ["/Delete", "/TN", WINDOWS_DAEMON_TASK, "/F"]);
+        const warnings = [];
+        if (taskExists()) {
+            const result = run(spawn, "schtasks.exe", ["/Delete", "/TN", WINDOWS_DAEMON_TASK, "/F"], true);
+            if (result.error || result.status !== 0) {
+                warnings.push(`Could not remove the scheduled task: ${failureDetail(result)}`);
+            }
+        }
+        if (runEntryExists()) {
+            const result = run(spawn, "reg.exe", ["delete", WINDOWS_RUN_KEY, "/v", WINDOWS_RUN_VALUE, "/f"], true);
+            if (result.error || result.status !== 0) {
+                warnings.push(`Could not remove the sign-in Run entry: ${failureDetail(result)}`);
+            }
+        }
         await rm(serviceDir, { recursive: true, force: true });
-        writer(`${JSON.stringify(await serviceStatus(), null, 2)}\n`);
+        writer(`${JSON.stringify(await serviceStatus(warnings), null, 2)}\n`);
         return;
     }
     if (action === "start" || action === "restart") {

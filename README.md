@@ -57,6 +57,16 @@ Open a new PowerShell window after installation, then run:
 gateway-for-premiere doctor
 ```
 
+The installer runs without administrator rights. It installs under `%LOCALAPPDATA%`, adds the command to the user `Path` in `HKCU`, and the broker listens on `127.0.0.1` with a non-privileged port, so no elevation, firewall exception, or machine-wide change is required.
+
+Sign-in autostart is registered in this order, and installation succeeds whichever step the account allows:
+
+1. a Task Scheduler task created for the signed-in account with `/RU <user> /IT /RL LIMITED`, which a limited account can register for itself;
+2. the same task without `/RU`, for accounts where the first form is rejected;
+3. the per-user `HKCU\...\CurrentVersion\Run` key, which needs no Task Scheduler access at all (it starts the broker through Windows Script Host, without a console window).
+
+If every step is refused, installation still completes and the broker still runs. `gateway-for-premiere doctor` then reports `daemon.autostartRegistered: false`, and `gateway-for-premiere daemon start` starts the broker after each sign-in. `gateway-for-premiere daemon status` reports which mechanism is in use.
+
 The public installer should be Authenticode-signed. An unsigned build is suitable for isolated functional testing, but Windows SmartScreen may warn before installation.
 
 ### macOS installer (recommended)
@@ -76,7 +86,9 @@ gateway-for-premiere doctor
 
 The release installer must be signed with a Developer ID Installer certificate and notarized by Apple. Do not distribute an unsigned development build to reviewers.
 
-If Gateway for Premiere is already installed with Homebrew or npm, remove that installation before using the package installer. The package refuses to overwrite a command managed by another installer.
+If Gateway for Premiere is already installed with npm, the package moves that command aside to `/usr/local/bin/gateway-for-premiere.before-pkg-<timestamp>` and continues. A Homebrew installation at `/opt/homebrew/bin` is left in place and keeps PATH precedence, so run `brew uninstall gateway-for-premiere` to use the package installation instead.
+
+The package never fails installation because the automatic broker setup did not finish. When `gateway-for-premiere doctor` reports that the daemon is not installed, run `gateway-for-premiere daemon install` and check `/var/log/install.log` for the reason.
 
 ### Homebrew
 

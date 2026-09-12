@@ -15,6 +15,8 @@ import { runCli } from "../src/cli/index.js";
 import {
   DAEMON_SERVICE_LABEL,
   WINDOWS_DAEMON_TASK,
+  WINDOWS_RUN_KEY,
+  WINDOWS_RUN_VALUE,
 } from "../src/cli/daemon-service.js";
 import { GATEWAY_PROTOCOL_TOKEN } from "../src/cli/config.js";
 
@@ -1608,6 +1610,227 @@ test("Windows managed daemon uses a per-user scheduled task and PID file", async
   const removed = JSON.parse(text) as Record<string, unknown>;
   assert.equal(removed.installed, false);
   assert.equal(removed.loaded, false);
+});
+
+test("Windows daemon install survives a denied scheduled task", async (context) => {
+  const localAppData = await mkdtemp(
+    path.join(os.tmpdir(), "gateway-for-premiere-windows-denied-"),
+  );
+  context.after(() => rm(localAppData, { recursive: true, force: true }));
+  const serviceDir = path.join(localAppData, "Gateway for Premiere");
+  const pidPath = path.join(serviceDir, "gateway-for-premiere.pid");
+  await mkdir(serviceDir, { recursive: true });
+  await writeFile(pidPath, "4321\n", "utf8");
+
+  let runEntry: string | null = null;
+  let running = false;
+  const calls: Array<{ command: string; args: readonly string[] }> = [];
+  const fakeSpawn = ((command: string, args: readonly string[] = []) => {
+    calls.push({ command, args });
+    if (command === "schtasks.exe") {
+      return { status: 1, stdout: "", stderr: "ERROR: Access is denied." };
+    }
+    if (command === "reg.exe" && args[0] === "add") {
+      runEntry = String(args[args.indexOf("/d") + 1]);
+      return { status: 0, stdout: "", stderr: "" };
+    }
+    if (command === "reg.exe" && args[0] === "query") {
+      return runEntry === null
+        ? {
+            status: 1,
+            stdout: "",
+            stderr:
+              "ERROR: The system was unable to find the specified registry key or value.",
+          }
+        : { status: 0, stdout: runEntry, stderr: "" };
+    }
+    return { status: 0, stdout: "", stderr: "" };
+  }) as unknown as typeof spawnSync;
+  const fakeSpawnDetached = (() => {
+    running = true;
+    return { unref: () => undefined };
+  }) as never;
+
+  let text = "";
+  await runCli(
+    ["--port", "2196", "daemon", "install"],
+    (value) => {
+      text += value;
+    },
+    {
+      daemonService: {
+        spawn: fakeSpawn,
+        platform: "win32",
+        localAppData,
+        windowsUser: "Review Team",
+        windowsUserDomain: "REVIEWPC",
+        nodePath: "C:\\Gateway\\runtime\\node.exe",
+        entrypoint: "C:\\Gateway\\dist\\cli\\index.js",
+        processRunning: (pid) => pid === 4321 && running,
+        spawnDetached: fakeSpawnDetached,
+        waitDelays: [0],
+      },
+    },
+  );
+  const installed = JSON.parse(text) as Record<string, unknown>;
+  assert.equal(installed.installed, true);
+  assert.equal(installed.loaded, true);
+  assert.equal(installed.autostart, "startup-registry");
+  assert.equal(installed.autostartRegistered, true);
+  assert.match(JSON.stringify(installed.warnings), /Access is denied/);
+  const createCalls = calls.filter(
+    (call) => call.command === "schtasks.exe" && call.args[0] === "/Create",
+  );
+  assert.equal(createCalls.length, 2);
+  assert.ok(
+    createCalls[0]!.args.includes("/RU") &&
+      createCalls[0]!.args.includes("REVIEWPC\\Review Team") &&
+      createCalls[0]!.args.includes("/IT"),
+  );
+  assert.ok(!createCalls[1]!.args.includes("/RU"));
+  assert.ok(
+    calls.some(
+      (call) =>
+        call.command === "reg.exe" &&
+        call.args[0] === "add" &&
+        call.args.includes(WINDOWS_RUN_KEY) &&
+        call.args.includes(WINDOWS_RUN_VALUE),
+    ),
+  );
+  assert.match(String(runEntry), /daemon\.vbs/);
+  const hiddenLauncher = await readFile(
+    path.join(serviceDir, "daemon.vbs"),
+    "utf8",
+  );
+  assert.match(hiddenLauncher, /shell\.Run/);
+  assert.match(hiddenLauncher, /, 0, False/);
+});
+
+test("Windows daemon install registers the task for the current user without elevation", async (context) => {
+  const localAppData = await mkdtemp(
+    path.join(os.tmpdir(), "gateway-for-premiere-windows-limited-"),
+  );
+  context.after(() => rm(localAppData, { recursive: true, force: true }));
+  const serviceDir = path.join(localAppData, "Gateway for Premiere");
+  const pidPath = path.join(serviceDir, "gateway-for-premiere.pid");
+  await mkdir(serviceDir, { recursive: true });
+  await writeFile(pidPath, "555\n", "utf8");
+
+  let taskCreated = false;
+  let running = false;
+  const calls: Array<{ command: string; args: readonly string[] }> = [];
+  const fakeSpawn = ((command: string, args: readonly string[] = []) => {
+    calls.push({ command, args });
+    if (command === "schtasks.exe" && args[0] === "/Create") {
+      // A limited account may create its own interactive task only.
+      if (!args.includes("/RU")) {
+        return { status: 1, stdout: "", stderr: "ERROR: Access is denied." };
+      }
+      taskCreated = true;
+      return { status: 0, stdout: "", stderr: "" };
+    }
+    if (command === "schtasks.exe" && args[0] === "/Query" && !taskCreated) {
+      return { status: 1, stdout: "", stderr: "not found" };
+    }
+    if (command === "reg.exe" && args[0] === "query") {
+      return { status: 1, stdout: "", stderr: "not found" };
+    }
+    return { status: 0, stdout: "", stderr: "" };
+  }) as unknown as typeof spawnSync;
+  const fakeSpawnDetached = (() => {
+    running = true;
+    return { unref: () => undefined };
+  }) as never;
+
+  let text = "";
+  await runCli(
+    ["--port", "2196", "daemon", "install"],
+    (value) => {
+      text += value;
+    },
+    {
+      daemonService: {
+        spawn: fakeSpawn,
+        platform: "win32",
+        localAppData,
+        windowsUser: "Review Team",
+        nodePath: "C:\\Gateway\\runtime\\node.exe",
+        entrypoint: "C:\\Gateway\\dist\\cli\\index.js",
+        processRunning: (pid) => pid === 555 && running,
+        spawnDetached: fakeSpawnDetached,
+        waitDelays: [0],
+      },
+    },
+  );
+  const installed = JSON.parse(text) as Record<string, unknown>;
+  assert.equal(installed.autostart, "scheduled-task");
+  assert.equal(installed.autostartRegistered, true);
+  assert.equal(installed.warnings, undefined);
+  const createCall = calls.find(
+    (call) => call.command === "schtasks.exe" && call.args[0] === "/Create",
+  );
+  assert.ok(createCall);
+  assert.deepEqual(
+    [
+      createCall.args.includes("/RU"),
+      createCall.args.includes("Review Team"),
+      createCall.args.includes("/IT"),
+      createCall.args.includes("LIMITED"),
+    ],
+    [true, true, true, true],
+  );
+  assert.ok(
+    !calls.some((call) => call.command === "reg.exe" && call.args[0] === "add"),
+  );
+});
+
+test("Windows daemon install reports a missing autostart without failing", async (context) => {
+  const localAppData = await mkdtemp(
+    path.join(os.tmpdir(), "gateway-for-premiere-windows-noautostart-"),
+  );
+  context.after(() => rm(localAppData, { recursive: true, force: true }));
+  const serviceDir = path.join(localAppData, "Gateway for Premiere");
+  const pidPath = path.join(serviceDir, "gateway-for-premiere.pid");
+  await mkdir(serviceDir, { recursive: true });
+  await writeFile(pidPath, "777\n", "utf8");
+
+  let running = false;
+  const fakeSpawn = ((command: string) => {
+    if (command === "schtasks.exe" || command === "reg.exe") {
+      return { status: 1, stdout: "", stderr: "ERROR: Access is denied." };
+    }
+    return { status: 0, stdout: "", stderr: "" };
+  }) as unknown as typeof spawnSync;
+  const fakeSpawnDetached = (() => {
+    running = true;
+    return { unref: () => undefined };
+  }) as never;
+
+  let text = "";
+  await runCli(
+    ["--port", "2196", "daemon", "install"],
+    (value) => {
+      text += value;
+    },
+    {
+      daemonService: {
+        spawn: fakeSpawn,
+        platform: "win32",
+        localAppData,
+        nodePath: "C:\\Gateway\\runtime\\node.exe",
+        entrypoint: "C:\\Gateway\\dist\\cli\\index.js",
+        processRunning: (pid) => pid === 777 && running,
+        spawnDetached: fakeSpawnDetached,
+        waitDelays: [0],
+      },
+    },
+  );
+  const installed = JSON.parse(text) as Record<string, unknown>;
+  assert.equal(installed.installed, true);
+  assert.equal(installed.loaded, true);
+  assert.equal(installed.autostart, null);
+  assert.equal(installed.autostartRegistered, false);
+  assert.match(JSON.stringify(installed.warnings), /daemon start/);
 });
 
 test("managed daemon uninstall requires explicit confirmation", async () => {
