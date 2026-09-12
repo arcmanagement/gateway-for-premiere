@@ -12,6 +12,8 @@ This repository is the source of truth for the local gateway that lets AI agents
 - `plugin/dist/` and `plugin/marketplace-dist/` are generated artifacts and are not sources of truth.
 - The root `dist/` directory is a versioned release artifact for installing the CLI from GitHub. Keep it synchronized with `src/` through `npm run verify:dist`.
 - Add MCP only as an adapter over the existing broker contract. Do not duplicate Premiere operations.
+- An installer must complete on an account without administrator rights. Sign-in autostart, scheduled tasks, service registration, and every other convenience step are optional: report the failure, start what can still run, and let the installation succeed. A single privileged step must never decide whether the product works at all.
+- macOS package scripts must exit 0. Installer replaces any non-zero exit with a generic failure dialog and hides the script output, so an abort there is indistinguishable from a broken package.
 
 ## Changes
 
@@ -31,3 +33,5 @@ npm run verify:dist
 ```
 
 When plugin or DOM behavior changes, verify the plugin connection, snapshot, target operation, undo path, and state after reopening the project in Premiere Pro.
+
+When installer or daemon setup behavior changes, verify it on an account without administrator rights, not only on the development machine. On Windows, `runas /trustlevel:0x20000` starts a process with a restricted token, which reproduces what a limited account is allowed to do. On macOS, remove the package receipt with `pkgutil --forget` and leave a Homebrew or npm copy of the command in place to reproduce an installation over a foreign one. Check that the broker is running and reachable afterwards, not only that the installer reported success.
