@@ -23,6 +23,7 @@ import {
 import { readableComponentParam } from "./component-param-boundary";
 import { snapshotComponentParam } from "./component-param-snapshot";
 import { mediaKeyframeSeconds } from "./keyframe-time";
+import { editedMogrtText, isMogrtText } from "./mogrt-text";
 import { runMogrtMutation } from "./mogrt-mutation";
 import { importedProjectItemsForPath } from "./project-item-delta";
 import { projectItemsAtDepth } from "./project-items-projection";
@@ -2240,7 +2241,12 @@ async function setComponentParam(
   );
   if (param.isTimeVarying())
     throw new Error("Time-varying parameters require keyframe-aware editing");
-  const keyframe = param.createKeyframe(componentValue(payload.value));
+  const current = await param.getStartValue();
+  const keyframe = param.createKeyframe(
+    isMogrtText(current) && typeof payload.value === "string"
+      ? editedMogrtText(current, payload.value)
+      : componentValue(payload.value),
+  );
   await execute(
     before,
     payload,

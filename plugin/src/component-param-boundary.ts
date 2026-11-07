@@ -14,7 +14,7 @@ export function readableComponentParam(
     throw new Error("Target component parameter is missing from the snapshot");
   if (param.valueReliability !== "complete") {
     throw new Error(
-      "Target component parameter value is unavailable; only public primitive parameters can be edited",
+      "Target component parameter value is unavailable; only public primitive parameters can be edited, and MOGRT text requires Premiere 27.0 or later",
     );
   }
   return param;

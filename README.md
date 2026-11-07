@@ -355,6 +355,7 @@ Exports never overwrite an existing file. The output extension must match the se
 - Clip speed and reverse state are readable but not writable because Premiere Pro 26.3 does not expose public Actions for them.
 - Premiere Pro 26.3.2 can expose some transitions as opaque `null` slots. Such a snapshot is marked `opaque-transitions`, and mutations stop unless `--allow-opaque-transitions true` is explicitly supplied after visual review.
 - Missing component chains produce `incomplete-components` or `multiple-incomplete` reliability. Mutations stop unless `--allow-incomplete-revision true` is explicitly supplied after visual review.
+- Editing MOGRT text requires Premiere 27.0 or later. Premiere 26.5.2 exposes neither `MogrtText` nor a readable value for `Source Text`, so `timeline effect set-param` refuses that parameter there. Position, size, and opacity of a MOGRT remain editable.
 - UXP Developer Tool's `Load & Watch` does not survive a Premiere restart. Marketplace builds use Adobe's invisible application-launch mode and must be cold-start tested from an installed CCX.
 - The plugin manifest allows only `ws://localhost:1966`, while the broker listens only on `127.0.0.1`. Premiere Pro 26.3.2 rejects an IP-literal manifest entry, so the manifest uses `localhost`.
 

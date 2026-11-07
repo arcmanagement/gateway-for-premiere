@@ -8,6 +8,7 @@ export function jsonValue(value: any): JsonValue {
     return value;
   }
   if (typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value.getText === "function") return String(value.getText());
   // Premiere 26.3 exposes PointF as a two-number array in some component
   // values even though the public type is PointF. Normalize only that exact
   // runtime shape; arbitrary arrays remain unsupported.
