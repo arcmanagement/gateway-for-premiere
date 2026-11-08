@@ -22,6 +22,8 @@ import {
 } from "./effect-boundary";
 import { readableComponentParam } from "./component-param-boundary";
 import { snapshotComponentParam } from "./component-param-snapshot";
+import { mediaKeyframeSeconds } from "./keyframe-time";
+import { assertMogrtTextUnchanged } from "./mogrt-text";
 import { runMogrtMutation } from "./mogrt-mutation";
 import { importedProjectItemsForPath } from "./project-item-delta";
 import { projectItemsAtDepth } from "./project-items-projection";
@@ -1526,7 +1528,11 @@ function componentValue(value: unknown): any {
 
 async function componentSnapshots(item: any): Promise<ComponentSnapshot[]> {
   const chain = await item.getComponentChain();
-  const itemStart = await item.getStartTime();
+  const itemInPoint = await item.getInPoint();
+  const timing = {
+    startSeconds: seconds(await item.getStartTime()),
+    inPointSeconds: seconds(itemInPoint),
+  };
   const components: ComponentSnapshot[] = [];
   for (
     let componentIndex = 0;
@@ -1544,8 +1550,9 @@ async function componentSnapshots(item: any): Promise<ComponentSnapshot[]> {
         await snapshotComponentParam(
           component.getParam(paramIndex),
           paramIndex,
-          itemStart,
+          itemInPoint,
           seconds,
+          timing,
         ),
       );
     }
@@ -2234,6 +2241,7 @@ async function setComponentParam(
   );
   if (param.isTimeVarying())
     throw new Error("Time-varying parameters require keyframe-aware editing");
+  assertMogrtTextUnchanged(await param.getStartValue());
   const keyframe = param.createKeyframe(componentValue(payload.value));
   await execute(
     before,
@@ -2322,8 +2330,9 @@ async function setComponentKeyframe(
   ) {
     throw new Error("Keyframe time must be within the track item");
   }
-  const time = ppro.TickTime.createWithSeconds(timeSeconds);
-  const existingTime = keyframeAt(param, timeSeconds);
+  const mediaSeconds = mediaKeyframeSeconds(snapshotItem, timeSeconds);
+  const time = ppro.TickTime.createWithSeconds(mediaSeconds);
+  const existingTime = keyframeAt(param, mediaSeconds);
   const keyframe = param.createKeyframe(componentValue(payload.value));
   keyframe.position = time;
   if (
@@ -2359,13 +2368,16 @@ async function removeComponentKeyframe(
 ): Promise<{ timeline: TimelineSnapshot; components: ComponentSnapshot[] }> {
   if (payload.confirm !== true)
     throw new Error("remove_component_keyframe requires confirm: true");
-  const { before, project, sequence, item, param } =
+  const { before, project, sequence, snapshotItem, item, param } =
     await componentParamContext(payload);
   if (!param.isTimeVarying())
     throw new Error("Component parameter is not time-varying");
   const timeSeconds = finiteNumber(payload.timeSeconds, "timeSeconds");
   const keyframeTimes = param.getKeyframeListAsTickTimes();
-  const existingTime = keyframeAt(param, timeSeconds);
+  const existingTime = keyframeAt(
+    param,
+    mediaKeyframeSeconds(snapshotItem, timeSeconds),
+  );
   if (!existingTime)
     throw new Error("Keyframe not found at the requested time");
   await execute(

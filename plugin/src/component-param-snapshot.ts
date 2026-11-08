@@ -1,18 +1,23 @@
 import type { ComponentParamSnapshot } from "../../src/shared/protocol";
 import { jsonValue } from "./json-value";
+import {
+  timelineKeyframeSeconds,
+  type KeyframeItemTiming,
+} from "./keyframe-time";
 
 export async function snapshotComponentParam(
   param: any,
   paramIndex: number,
-  itemStart: any,
+  itemInPoint: any,
   seconds: (time: any) => number,
+  timing: KeyframeItemTiming = { startSeconds: 0, inPointSeconds: 0 },
 ): Promise<ComponentParamSnapshot> {
   let value: ComponentParamSnapshot["value"] = null;
   let valueReliability: "complete" | "unavailable" = "complete";
   try {
     value = jsonValue(await param.getStartValue());
     if (value === null)
-      value = jsonValue(await param.getValueAtTime(itemStart));
+      value = jsonValue(await param.getValueAtTime(itemInPoint));
     if (value === null) valueReliability = "unavailable";
   } catch {
     // TextDocument-style MOGRT parameters are exposed by name but do not
@@ -30,7 +35,7 @@ export async function snapshotComponentParam(
       if (keyframeValue === null)
         throw new Error("Keyframe value is unavailable");
       keyframes.push({
-        timeSeconds: seconds(time),
+        timeSeconds: timelineKeyframeSeconds(timing, seconds(time)),
         value: keyframeValue,
         temporalInterpolationMode:
           await keyframe.getTemporalInterpolationMode(),
